@@ -5,6 +5,8 @@ const ASSETS = [
   './index.html',
   './styles.css',
   './app.js',
+  './account.js',
+  './vendor/firebase.js',
   './manifest.webmanifest',
   './fonts/outfit-latin.woff2',
   './fonts/outfit-latin-ext.woff2',

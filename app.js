@@ -197,6 +197,7 @@ function save() {
     // Full: fine while the IndexedDB copy is working (it holds far more); otherwise warn.
     if (!storage.idbWorks) toast('Could not save — storage full or blocked');
   }
+  window.goalieCloud?.changed(); // signed in: back up and sync (account.js)
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -3014,6 +3015,7 @@ function renderSettings() {
     ? `Last backup: ${longDate(toDateInput(new Date(last)))} (${daysAgo(last)}).`
     : 'No backup yet. Goalie reminds you every 2 weeks.';
   $('#btn-damaged').classList.toggle('hidden', !damagedKeys().length);
+  window.goalieCloud?.prepare();
   $$('#set-theme button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.theme || 'auto')));
   if (document.activeElement !== $('#set-name')) $('#set-name').value = state.settings.name || '';
   renderTrash();
@@ -3269,6 +3271,7 @@ function daysAgo(ts) {
 // Every 2 weeks (at most once a day), remind about exporting a backup.
 function backupReminder() {
   if (!state.tallies.length || document.visibilityState !== 'visible') return;
+  if (window.goalieCloud?.signedIn()) return; // backed up to the account already
   const s = state.settings, today = dayKey(new Date());
   if (!s.lastExport && !s.backupFrom) { s.backupFrom = Date.now(); save(); return; }
   const since = s.lastExport || s.backupFrom;
@@ -3298,7 +3301,7 @@ $('#import-file').addEventListener('change', async e => {
     if (!Array.isArray(data.tallies) || !Array.isArray(data.entries)) throw new Error('bad file');
     openSheet(
       el('h3', {}, 'Replace current data?'),
-      el('p', {}, `This backup has ${data.tallies.length} tallies and ${data.entries.length} entries. Your current data will be replaced.`),
+      el('p', {}, `This backup has ${data.tallies.length} tallies and ${data.entries.length} entries. Your current data will be replaced${window.goalieCloud?.signedIn() ? ' here and on your other signed-in devices' : ''}.`),
       el('button', {
         class: 'sheet-btn primary',
         onclick: () => {
@@ -3322,7 +3325,9 @@ $('#btn-notify').addEventListener('click', async () => { await ensureNotifyPermi
 $('#btn-wipe').addEventListener('click', () => {
   openSheet(
     el('h3', {}, 'Delete everything?'),
-    el('p', {}, 'All tallies and history on this device will be erased. Export a backup first if you might want it back.'),
+    el('p', {}, window.goalieCloud?.signedIn()
+      ? 'All tallies and history will be erased on this device, in your account, and on your other signed-in devices. Export a backup first if you might want it back.'
+      : 'All tallies and history on this device will be erased. Export a backup first if you might want it back.'),
     el('button', {
       class: 'sheet-btn danger',
       onclick: () => { state = DEFAULT_STATE(); save(); clearUndoHistory(); renderToday(); renderSettings(); closeSheet(); toast('All data deleted'); },
@@ -3962,7 +3967,7 @@ async function syncStorage() {
   storage.synced = true;
   idbSet('state', JSON.stringify(state)).catch(() => {});
 }
-syncStorage();
+const storageReady = syncStorage(); // (account.js waits for this before syncing with the cloud)
 // Ask iPhone not to clear Goalie's storage when space runs low.
 navigator.storage?.persist?.().catch(() => {});
 if (storage.damagedKey) setTimeout(() => toast('Saved data couldn’t be read. A copy was kept (Settings → Backup).'), 1200);

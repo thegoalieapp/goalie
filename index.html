@@ -295,6 +295,9 @@
       <label class="field-label first" for="set-name">NAME</label>
       <input id="set-name" class="text-input full" type="text" maxlength="30" autocomplete="given-name" autocapitalize="words" placeholder="Your first name">
 
+      <div class="field-label">ACCOUNT</div>
+      <div id="account-box" class="account-box"></div>
+
       <div class="field-label">APPEARANCE</div>
       <div class="seg pills" id="set-theme">
         <button type="button" data-v="light">LIGHT</button>
@@ -347,8 +350,7 @@
 
       <div class="field-label">DANGER ZONE</div>
       <button class="row-btn danger" id="btn-wipe">Delete all data</button>
-
-      <p class="note">Data is stored only on this device. Deleting Goalie from your Home Screen erases it, so export a backup first.</p>
+      <p class="note" id="storage-note">Data is stored only on this device. Deleting Goalie from your Home Screen erases it, so export a backup first.</p>
       <p class="note screen-info" id="screen-info"></p>
     </div>
   </section>
@@ -361,5 +363,6 @@
   <div id="banner" class="banner" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
+  <script src="account.js"></script>
 </body>
 </html>

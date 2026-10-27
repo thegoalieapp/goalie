@@ -18,7 +18,7 @@ npx http-server -p 5173 -c-1
 Then open http://localhost:5173. (The offline service worker is skipped on localhost so edits show up right away.)
 
 ## Put it on your iPhone (free, via GitHub Pages)
-1. Create a GitHub repo and upload every file in this folder (`index.html`, `styles.css`, `app.js`, `sw.js`, `version.json`, `manifest.webmanifest`, `icons/`, `fonts/`).
+1. Create a GitHub repo and upload every file in this folder (`index.html`, `styles.css`, `app.js`, `account.js`, `sw.js`, `vendor/`, `version.json`, `manifest.webmanifest`, `icons/`, `fonts/`).
 2. In the repo, go to **Settings → Pages**, choose **Deploy from a branch**, pick `main` / root, and save.
 3. After about a minute, open the `https://<username>.github.io/<repo>/` URL in **Safari** on your iPhone.
 4. Tap **Share → Add to Home Screen**.
@@ -37,3 +37,6 @@ Installed copies never update on their own. The next time Goalie is opened it se
 - The home-screen icon is saved when Goalie is added to the Home Screen and doesn't change after that.
 - There is no Apple Watch support. That needs a native app.
 - Data lives on one device, and deleting the home-screen app deletes it. Use Export to back it up.
+
+## Sign-in and sync (Firebase)
+`account.js` adds Sign in with Apple / Google and syncs data through Firebase project `goalie-9522d`. Nothing loads until Settings is opened or someone is signed in. `vendor/firebase.js` is the Firebase SDK bundled into one file; to rebuild it, run `npm install` then `npm run build` in `tools/firebase/`.

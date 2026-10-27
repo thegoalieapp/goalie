@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "description": "Builds vendor/firebase.js (the parts of the Firebase SDK Goalie uses) as one ES module.",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --format=esm --minify --legal-comments=eof --outfile=../../vendor/firebase.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "firebase": "12.19.0"
+  }
+}
