@@ -613,6 +613,7 @@ function visionSheet(group) {
   const area = el('textarea', { class: 'text-area vision-input', rows: 6, placeholder: VISION_PROMPT });
   area.value = visionOf(group);
   autoList(area);
+  growWithText(area);
   const saveVision = () => {
     const v = (state.settings.groupVisions ||= {});
     if (area.value.trim()) v[group] = area.value.trim(); else delete v[group];
@@ -626,6 +627,10 @@ function visionSheet(group) {
     el('button', { class: 'sheet-btn primary', onclick: saveVision }, 'Save vision'),
     el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Cancel'),
   );
+  fitTextArea(area);
+  area.addEventListener('focus', () => $('#sheet').classList.add('full')); // writing: use the whole screen
+  // Swiped away or tapped outside: keep what was written (only Cancel throws it away).
+  onSheetDismiss = () => { if (area.value.trim() !== visionOf(group)) saveVision(); };
 }
 
 // Every group name, in the user's chosen order (new groups go at the end in order of first appearance).
@@ -1502,6 +1507,7 @@ function openForm(t) {
   $('#f-goal').value = form.target ?? '';
   $('#f-examples').value = form.examples || '';
   $('#f-nonexamples').value = form.nonExamples || '';
+  requestAnimationFrame(() => { fitTextArea($('#f-examples')); fitTextArea($('#f-nonexamples')); });
   $('#f-bottom').value = form.bottomText;
   $('#f-unit').value = form.customUnit || '';
   $('#create-form').scrollTop = 0;
@@ -1675,6 +1681,42 @@ function autoList(area) {
 }
 autoList($('#f-examples'));
 autoList($('#f-nonexamples'));
+
+/* Text boxes that grow with what's written (no scrolling inside the box), and keep the line being
+   typed on screen: the page scrolls along when a new line (or numbered / dashed item) is added. */
+function fitTextArea(area) {
+  area.style.height = 'auto';
+  area.style.height = `${area.scrollHeight}px`;
+}
+function caretBottom(area) {
+  const cs = getComputedStyle(area), copy = document.createElement('div');
+  for (const p of ['boxSizing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'wordSpacing', 'textIndent', 'tabSize']) copy.style[p] = cs[p];
+  Object.assign(copy.style, { position: 'absolute', visibility: 'hidden', left: '-9999px', top: '0', width: `${area.offsetWidth}px`, whiteSpace: 'pre-wrap', overflowWrap: 'break-word' });
+  copy.textContent = area.value.slice(0, area.selectionEnd);
+  const mark = el('span', {}, '​');
+  copy.append(mark);
+  document.body.append(copy);
+  const y = mark.offsetTop + mark.offsetHeight;
+  copy.remove();
+  return area.getBoundingClientRect().top - area.scrollTop + y;
+}
+function keepCaretVisible(area) {
+  if (document.activeElement !== area) return;
+  const scroller = area.closest('.sheet, .form-scroll, .todo-scroll');
+  if (!scroller) return;
+  const vv = window.visualViewport; // the part of the screen above the keyboard
+  const visibleBottom = Math.min(scroller.getBoundingClientRect().bottom, vv ? vv.offsetTop + vv.height : innerHeight) - 24;
+  const over = caretBottom(area) - visibleBottom;
+  if (over > 0) scroller.scrollTop += over;
+}
+function growWithText(area) {
+  area.classList.add('grows');
+  area.addEventListener('input', () => { fitTextArea(area); requestAnimationFrame(() => keepCaretVisible(area)); });
+  area.addEventListener('focus', () => setTimeout(() => keepCaretVisible(area), 350)); // after the keyboard opens
+}
+growWithText($('#f-examples'));
+growWithText($('#f-nonexamples'));
 
 function joinList(items) {
   if (items.length <= 1) return items.join('');
@@ -3861,7 +3903,8 @@ $('#btn-todo-redo').addEventListener('click', todoRedo);
    ========================================================= */
 function openSheet(...children) {
   const sheet = $('#sheet');
-  sheet.classList.remove('tight'); // (only the sheet that asks for it is compact)
+  sheet.classList.remove('tight', 'full'); // (only the sheet that asks for it is compact)
+  onSheetDismiss = null;
   sheet.style.transform = '';
   sheet.style.transition = '';
   sheet.innerHTML = '';
@@ -3878,25 +3921,42 @@ function closeSheet() {
 }
 $('#sheet-backdrop').addEventListener('click', e => {
   if (Date.now() - holdReleasedAt < 500 && Math.hypot(e.clientX - blockTap.x, e.clientY - blockTap.y) < 40) return; // the finger lifting off the card
-  closeSheet();
+  dismissSheet();
 });
 
-// Swipe a sheet down to dismiss it (only when its content is scrolled to the top).
+// Closing a sheet by tapping outside it or swiping it away (not its Cancel button). A sheet with
+// something worth keeping (a vision being written) sets onSheetDismiss to save it first.
+let onSheetDismiss = null;
+function dismissSheet() {
+  const keep = onSheetDismiss;
+  onSheetDismiss = null;
+  keep?.();
+  closeSheet();
+}
+
+/* Swipes on a sheet:
+   - up (content at the top): grow to full screen, when there's more to see or a box to write in
+   - down (content at the top): a full-screen sheet shrinks back; otherwise the sheet closes
+   Text boxes that have scrolled keep their own swipes, so scrolling a vision never closes it. */
 (() => {
   const sheet = $('#sheet');
-  let startY = null, dy = 0, dragging = false;
+  let startY = null, dy = 0, dragging = false, atTop = true;
+  const canGrow = () => !sheet.classList.contains('full') && (sheet.scrollHeight > sheet.clientHeight + 4 || !!sheet.querySelector('textarea'));
   sheet.addEventListener('touchstart', e => {
-    if (!sheet.classList.contains('show') || sheet.scrollTop > 0) { startY = null; return; }
+    if (!sheet.classList.contains('show')) { startY = null; return; }
     // Date wheels and scrolling lists inside the sheet handle their own up/down swipes.
     if (e.target.closest('.wheel, .hist')) { startY = null; return; }
+    const box = e.target.closest('textarea');
+    atTop = sheet.scrollTop <= 0 && !(box && box.scrollTop > 0);
     startY = e.touches[0].clientY; dy = 0; dragging = false;
   }, { passive: true });
   sheet.addEventListener('touchmove', e => {
     if (startY == null) return;
     dy = e.touches[0].clientY - startY;
     if (!dragging) {
-      if (dy < 8) { if (dy < -4) startY = null; return; } // moving up = normal scrolling
-      if (sheet.scrollTop > 0) { startY = null; return; }
+      if (dy < -12 && canGrow()) { startY = null; sheet.classList.add('full'); return; } // up: grow first, then scroll
+      if (dy < 8) { if (dy < -12) startY = null; return; } // moving up = normal scrolling
+      if (!atTop || sheet.scrollTop > 0) { startY = null; return; } // down = scrolling back up
       dragging = true;
       sheet.style.transition = 'none';
       document.activeElement?.blur?.();
@@ -3911,6 +3971,10 @@ $('#sheet-backdrop').addEventListener('click', e => {
     dragging = false;
     sheet.style.transition = '';
     if (dy > Math.min(120, sheet.offsetHeight * 0.25)) {
+      if (sheet.classList.contains('full')) { sheet.classList.remove('full'); sheet.style.transform = ''; return; }
+      const keep = onSheetDismiss;
+      onSheetDismiss = null;
+      keep?.();
       sheet.style.transform = 'translateY(110%)';
       $('#sheet-backdrop').classList.remove('show');
       delete sheet.dataset.open;
