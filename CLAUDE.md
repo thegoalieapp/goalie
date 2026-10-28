@@ -1,0 +1,24 @@
+# Goalie: notes for Claude
+
+Goalie is Tanner Witte's goal and habit tracker: a vanilla JS web app (`index.html`, `styles.css`, `app.js`, `account.js`, `sw.js`) that is also being wrapped with Capacitor for the App Store. The target is **live by Nov 1, 2026**. The full plan is in `docs/APP-STORE-PLAN.md`, and the Mac steps are in `docs/MAC-SESSION.md`.
+
+## Rules the owner set
+- **Never push without being told to.** Make the change, test it, report it, and wait for "push". Local commits are fine.
+- **Branches:** the live web app is GitHub Pages on remote `main` (https://thegoalieapp.github.io/goalie/, still at v88). The App Store work (sign-in and sync, `ios/`, iPad layout, vision fixes) lives on remote **`app-store`**. Don't merge it into `main` unless the owner decides sign-in should go live on the web too.
+- **When pushing a web release:** bump the version in 3 places (`sw.js` CACHE, the `goalie-version` meta in `index.html`, `version.json`), then check that the live site serves the new version.
+- **Every update gets a verdict:** "✅ Live update OK" (web-layer fixes and tweaks) or "🍎 Send through App Store review" (native changes, new data, anything Apple reviews).
+- Never auto-update installed copies. The app asks "Update now / Schedule for later".
+- Ask before inventing design details the owner didn't specify.
+
+## Setup
+- Firebase project `goalie-9522d`: Google and Apple sign-in (Services ID `com.thegoalieapp.goalie.signin`), Firestore (`nam5`) with per-user rules (`users/{uid}/**`). Web sign-in, sync and Delete account were tested on 2026-10-27.
+- Bundle ID `com.thegoalieapp.goalie`. Add-ons for app locks: `.monitor`, `.shield`, `.shieldaction`. Family Controls (Distribution) has been requested from Apple.
+- App Store Connect: "Goalie: Goal & Habit Tracker", SKU goalie-001. The API key is stored as GitHub secrets (`APPSTORE_ISSUER_ID`, `APPSTORE_KEY_ID`, `APPSTORE_P8`).
+- Website: https://thegoalieapp.com (repo `thegoalieapp/goalie-site`), with privacy.html and support.html.
+- The iOS plugin config turns **off** the Facebook SDK (privacy policy: no third-party tracking). Keep it off.
+
+## Next steps (the Mac session)
+1. Follow `docs/MAC-SESSION.md`: `npm install`, `npm run ios`, open Xcode, pick the team, and run on the owner's iPhone.
+2. Test Sign in with Apple and Google natively, plus sync.
+3. Archive and upload to TestFlight, then set up cloud builds (GitHub Actions + the API key).
+4. Still to build: the Screen Time app-lock screens and Swift extensions, widgets, and store materials (screenshots for iPhone **and iPad**, description, privacy answers).
