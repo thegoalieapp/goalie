@@ -17,8 +17,10 @@ Goalie is Tanner Witte's goal and habit tracker: a vanilla JS web app (`index.ht
 - Website: https://thegoalieapp.com (repo `thegoalieapp/goalie-site`), with privacy.html and support.html.
 - The iOS plugin config turns **off** the Facebook SDK (privacy policy: no third-party tracking). Keep it off.
 
-## Next steps (the Mac session)
-1. Follow `docs/MAC-SESSION.md`: `npm install`, `npm run ios`, open Xcode, pick the team, and run on the owner's iPhone.
+## Building the app
+The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.github/workflows/testflight.yml` builds on GitHub's macOS 26 runner (Xcode 26.6) on every push to `app-store` and uploads to TestFlight with cloud-managed signing. The owner tests through the TestFlight app. `docs/MAC-SESSION.md` is the fallback if a Mac becomes available.
+
+## Next steps
+1. Get the first TestFlight build through (check the Actions log, especially the entitlements step: Sign in with Apple must be listed).
 2. Test Sign in with Apple and Google natively, plus sync.
-3. Archive and upload to TestFlight, then set up cloud builds (GitHub Actions + the API key).
 4. Still to build: the Screen Time app-lock screens and Swift extensions, widgets, and store materials (screenshots for iPhone **and iPad**, description, privacy answers).
