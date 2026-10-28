@@ -23,4 +23,4 @@ The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.githu
 ## Next steps
 1. Get the first TestFlight build through (check the Actions log, especially the entitlements step: Sign in with Apple must be listed).
 2. Test Sign in with Apple and Google natively, plus sync.
-4. Still to build: the Screen Time app-lock screens and Swift extensions, widgets, and store materials (screenshots for iPhone **and iPad**, description, privacy answers).
+3. Still to build: the Screen Time app-lock screens and Swift extensions, widgets, and store materials (screenshots for iPhone **and iPad**, description, privacy answers).
