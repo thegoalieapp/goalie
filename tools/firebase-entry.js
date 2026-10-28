@@ -1,4 +1,4 @@
-// Everything Goalie uses from Firebase, bundled by `npm run build` into vendor/firebase.js.
+// Everything Goalie uses from Firebase, bundled by `npm run build:firebase` into vendor/firebase.js.
 export { initializeApp } from 'firebase/app';
 export {
   initializeAuth, indexedDBLocalPersistence, browserLocalPersistence, browserPopupRedirectResolver,

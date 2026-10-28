@@ -2,6 +2,7 @@
 *.png
 *.PNG
 !icons/*.png
+!ios/App/App/Assets.xcassets/**/*.png
 
 # Local tooling
 .claude/
@@ -9,3 +10,6 @@ node_modules/
 
 # exported data backups (personal data)
 goalie-backup-*.json
+
+# Native build output (rebuilt by npm run build)
+www/

@@ -3056,6 +3056,8 @@ function applyTheme() {
     fresh.content = color;
     old ? old.replaceWith(fresh) : document.head.append(fresh);
   }
+  // iPhone app: the clock and battery follow Goalie's theme, not the phone's (DARK = light text).
+  window.Capacitor?.Plugins?.StatusBar?.setStyle({ style: dark ? 'DARK' : 'LIGHT' }).catch(() => {});
 }
 applyTheme();
 

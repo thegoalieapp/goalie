@@ -1,0 +1,28 @@
+{
+  "appId": "com.thegoalieapp.goalie",
+  "appName": "Goalie",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "scheme": "Goalie"
+  },
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": ["apple.com", "google.com"]
+    }
+  },
+  "experimental": {
+    "ios": {
+      "spm": {
+        "swiftToolsVersion": "6.1",
+        "packageTraits": {
+          "@capacitor-firebase/authentication": ["Google"]
+        },
+        "packageOptions": {
+          "@capacitor-firebase/authentication": { "symlink": true }
+        }
+      }
+    }
+  }
+}

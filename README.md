@@ -39,4 +39,6 @@ Installed copies never update on their own. The next time Goalie is opened it se
 - Data lives on one device, and deleting the home-screen app deletes it. Use Export to back it up.
 
 ## Sign-in and sync (Firebase)
-`account.js` adds Sign in with Apple / Google and syncs data through Firebase project `goalie-9522d`. Nothing loads until Settings is opened or someone is signed in. `vendor/firebase.js` is the Firebase SDK bundled into one file; to rebuild it, run `npm install` then `npm run build` in `tools/firebase/`.
+`account.js` adds Sign in with Apple / Google and syncs data through Firebase project `goalie-9522d`. Nothing loads until Settings is opened or someone is signed in. `vendor/firebase.js` is the Firebase SDK bundled into one file; to rebuild it, run `npm install` then `npm run build:firebase`.
+
+
