@@ -42,3 +42,6 @@ Installed copies never update on their own. The next time Goalie is opened it se
 `account.js` adds Sign in with Apple / Google and syncs data through Firebase project `goalie-9522d`. Nothing loads until Settings is opened or someone is signed in. `vendor/firebase.js` is the Firebase SDK bundled into one file; to rebuild it, run `npm install` then `npm run build:firebase`.
 
 
+
+## iPhone app (Capacitor)
+The App Store version lives in `ios/` (Capacitor). `npm run ios` copies the web app into `www/` (via `tools/build-www.js`) and updates the iPhone project and its plugins. Building and running it needs a Mac with Xcode: see `docs/MAC-SESSION.md`.
