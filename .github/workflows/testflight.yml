@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - name: Get the code
@@ -37,9 +37,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Use Xcode 26.6
+      - name: Use Xcode 26.3
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.6.app
+          sudo xcode-select -s /Applications/Xcode_26.3.app
           xcodebuild -version
           node --version
 

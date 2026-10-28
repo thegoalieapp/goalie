@@ -18,7 +18,7 @@ Goalie is Tanner Witte's goal and habit tracker: a vanilla JS web app (`index.ht
 - The iOS plugin config turns **off** the Facebook SDK (privacy policy: no third-party tracking). Keep it off.
 
 ## Building the app
-The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.github/workflows/testflight.yml` builds on GitHub's macOS 26 runner (Xcode 26.6) on every push to `app-store` and uploads to TestFlight with cloud-managed signing. The owner tests through the TestFlight app. `docs/MAC-SESSION.md` is the fallback if a Mac becomes available.
+The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.github/workflows/testflight.yml` builds on GitHub's macOS 15 runner (Xcode 26.3; macOS 26 runners were too busy) on every push to `app-store` and uploads to TestFlight with cloud-managed signing. The owner tests through the TestFlight app. `docs/MAC-SESSION.md` is the fallback if a Mac becomes available.
 
 ## Next steps
 1. Get the first TestFlight build through (check the Actions log, especially the entitlements step: Sign in with Apple must be listed).
