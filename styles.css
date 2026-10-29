@@ -1648,9 +1648,9 @@ html { touch-action: manipulation; }
 .vision-head { display: flex; align-items: center; gap: 8px; color: var(--accent); }
 .vision-head h3 { color: var(--navy); }
 .vision-input { min-height: 150px; line-height: 1.5; }
-.vision-card { margin: 10px 0 4px; padding: 12px 14px; border-radius: 12px; background: var(--soft); }
+
 .vision-card-head { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--accent); }
-.sheet .vision-card p { margin: 6px 0 0; color: var(--navy); white-space: pre-wrap; }
+
 
 /* ---------- Calendar GOALS chips in each goal's colors ---------- */
 .group-chip.goal-chip { background: var(--chip-bg); border-color: var(--chip-bg); color: var(--chip-ink); }
@@ -1737,3 +1737,70 @@ html { touch-action: manipulation; }
 /* ---------- Sheets: swipe up to fill the screen ---------- */
 .sheet { transition: transform .28s cubic-bezier(.2,.8,.2,1), max-height .28s cubic-bezier(.2,.8,.2,1); }
 .sheet.full { max-height: calc(100% - var(--safe-top) - 10px); height: calc(100% - var(--safe-top) - 10px); }
+
+/* ---------- Card size (Settings → Customizable App Features): 4, 3, 2 or 1 across ---------- */
+body[data-cards="xs"] .tally-list:not(.list) .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+body[data-cards="s"] .tally-list:not(.list) .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+body[data-cards="l"] .tally-list:not(.list) .grid { grid-template-columns: minmax(0, 1fr); }
+body[data-cards="xs"] .tally-list:not(.list) .card { padding: 8px 4px; border-radius: 16px; }
+body[data-cards="s"] .tally-list:not(.list) .card { padding: 10px 6px 8px; border-radius: 20px; }
+body[data-cards="l"] .tally-list:not(.list) .card { aspect-ratio: 16 / 10; }
+@media (min-width: 600px) {
+  body[data-cards="xs"] .tally-list:not(.list) .grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+  body[data-cards="s"] .tally-list:not(.list) .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
+  body[data-cards="l"] .tally-list:not(.list) .grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+}
+/* Small cards (3 across): tighter text. */
+@container (max-width: 125px) {
+  .card-name { font-size: 13px; }
+  .card-period { font-size: 9px; letter-spacing: .06em; }
+  .card-count { font-size: 26cqw; }
+  .card-count.small { font-size: 20cqw; }
+  .card-count.tiny { font-size: 15cqw; }
+  .step-btn { width: 24px; height: 24px; font-size: 18px; }
+}
+/* Extra-small cards (4 across): name and count only. Tap to log; hold for everything else. */
+@container (max-width: 95px) {
+  .card-name { font-size: 11px; letter-spacing: 0; }
+  .card-period, .card-foot { display: none; }
+  .card-count { font-size: 30cqw; }
+  .card-count.small { font-size: 22cqw; }
+  .card-count.tiny { font-size: 16cqw; }
+}
+
+/* ---------- To-do list switched off: its button disappears (the others stay where they are) ---------- */
+#btn-todo.feature-off { visibility: hidden; pointer-events: none; }
+
+/* ---------- The overall vision: eye at the top of the home screen ---------- */
+.vision-top { color: #c4c8cf; }
+.vision-top.has { color: var(--accent); }
+.vision-top .eye { display: grid; }
+.vision-top .eye svg { width: 25px; height: 25px; }
+.today-header.editing #btn-vision { display: none; }
+.vision-groups { margin: 16px 0 4px; display: flex; flex-direction: column; gap: 8px; }
+.vision-group { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 12px; background: var(--soft); text-align: left; }
+.vision-group strong { font-size: 15px; color: var(--navy); }
+.vision-group span { font-size: 14px; line-height: 1.45; color: var(--navy); white-space: pre-wrap; }
+.vision-group span.empty { color: var(--muted); }
+
+/* ---------- Settings: Customizable App Features heading ---------- */
+.settings-section { margin: 46px 0 0; padding-top: 20px; border-top: 1px solid var(--line); font-size: 22px; font-weight: 800; letter-spacing: .02em; }
+/* Completed goals on small cards: shorter check-off text so it fits (x-small: just the check). */
+@container (max-width: 125px) {
+  .card-count.card-done { font-size: 24cqw; }
+  .done-label { font-size: 8.5px; letter-spacing: .03em; }
+}
+@container (max-width: 95px) {
+  .card-count.card-done { font-size: 36cqw; }
+  .done-label, .done-count { display: none; }
+}
+/* With the vision eye on the left of the title, the header icons sit closer and the title is a
+   little smaller, so all three fit beside it on a phone. */
+.today-header.with-vision .header-left .icon-btn { min-width: 36px; }
+.today-header.with-vision h1 { font-size: clamp(26px, 8vw, 31px); }
+/* Small cards: leave out the unit label line (Minutes, Times…) and the done count, so every card
+   stays square. */
+@container (max-width: 125px) {
+  .card-foot .card-bottom, .done-count { display: none; }
+  .card-foot { justify-content: center; column-gap: 14px; }
+}

@@ -26,7 +26,7 @@ const FIREBASE_CONFIG = {
 const ACCOUNT_KEY = 'goalie.account'; // { uid, email, provider } while signed in on this device
 
 // Settings that belong to this device only (what was shown or asked here), never synced.
-const DEVICE_SETTINGS = ['reminderFired', 'updateAt', 'backupNagDay', 'backupFrom', 'lastExport', 'trashOpen', 'streakDay'];
+const DEVICE_SETTINGS = ['reminderFired', 'updateAt', 'backupNagDay', 'backupFrom', 'lastExport', 'trashOpen', 'streakDay', 'cardSize'];
 
 const isNative = () => !!window.Capacitor?.isNativePlatform?.();
 const nativeAuth = () => window.Capacitor?.Plugins?.FirebaseAuthentication;

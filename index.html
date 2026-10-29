@@ -49,6 +49,7 @@
           <svg viewBox="0 0 24 24" width="26" height="26" fill="#6b7280"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5L19.4 13zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
         </button>
         <button class="icon-btn muted" id="btn-help" aria-label="Help">?</button>
+        <button class="icon-btn vision-top hidden" id="btn-vision" aria-label="Your vision"></button>
         <button class="edit-cancel hidden" id="btn-edit-cancel" aria-label="Cancel edits">CANCEL</button>
       </div>
       <h1>GOALIE</h1>
@@ -324,6 +325,39 @@
         <button type="button" data-v="average">AVERAGE PROGRESS TOWARD GOALS</button>
       </div>
       <p class="note">Fully completed: 3 of 4 goals met = 75%. Average progress: partly-done goals count too (2 of 3 workouts = 67%).</p>
+
+      <h2 class="settings-section">CUSTOMIZABLE APP FEATURES</h2>
+
+      <div class="field-label">CARD SIZE</div>
+      <div class="seg pills" id="set-cardsize">
+        <button type="button" data-v="xs">X-SMALL</button>
+        <button type="button" data-v="s">SMALL</button>
+        <button type="button" data-v="m">MEDIUM</button>
+        <button type="button" data-v="l">LARGE</button>
+      </div>
+      <p class="note">How many goal cards fit across: 4, 3, 2 or 1. Each device keeps its own size.</p>
+
+      <div class="field-label">VISIONS</div>
+      <div class="seg pills stack" id="set-visionmode">
+        <button type="button" data-v="groups">ONE VISION FOR EACH GROUP</button>
+        <button type="button" data-v="one">ONE VISION FOR EVERYTHING</button>
+        <button type="button" data-v="both">BOTH: AN OVERALL VISION PLUS EACH GROUP’S</button>
+      </div>
+      <p class="note">Group visions open from the eye beside each group’s name. The overall vision opens from the eye at the top of the screen, and with Both it shows each group’s vision too.</p>
+
+      <div class="field-label">DAILY WELCOME POP-UP</div>
+      <div class="seg pills" id="set-dailypopup">
+        <button type="button" data-v="on">ON</button>
+        <button type="button" data-v="off">OFF</button>
+      </div>
+      <p class="note">Once a day: your streaks and how yesterday’s daily goals went.</p>
+
+      <div class="field-label">TO-DO LIST</div>
+      <div class="seg pills" id="set-todolist">
+        <button type="button" data-v="on">ON</button>
+        <button type="button" data-v="off">OFF</button>
+      </div>
+      <p class="note">Off hides the to-do list button. Your to-dos are kept.</p>
 
       <div class="field-label">BACKUP</div>
       <button class="row-btn" id="btn-export">Export data (JSON)</button>

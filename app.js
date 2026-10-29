@@ -466,6 +466,10 @@ function setEditMode(on) {
 function renderToday(bumpId) {
   if (dragActive) return; // the drop re-renders
   const list = $('#tally-list'), top = list.scrollTop, pageTop = window.scrollY;
+  // Settings → Customizable App Features: card size (4 / 3 / 2 / 1 across) and the to-do list.
+  document.body.dataset.cards = state.settings.cardSize || 'm';
+  $('#btn-todo').classList.toggle('feature-off', state.settings.todoList === false);
+  renderVisionTop();
   drawToday(bumpId);
   list.scrollTop = top;
   if (window.scrollY !== pageTop) window.scrollTo(0, pageTop);
@@ -593,7 +597,7 @@ function drawToday(bumpId) {
         el('span', { class: 'group-name' }, name ? name.toUpperCase() : 'NO GROUP'),
         el('span', { class: 'group-count' }, String(tallies.length)),
         el('span', { class: 'group-chev', 'aria-hidden': 'true' }, '›')),
-        name && !editMode ? visionButton(name) : null));
+        name && !editMode && visionMode() !== 'one' ? visionButton(name) : null));
     }
     const grid = el('div', { class: `grid${isCollapsed ? ' collapsed' : ''}`, 'data-group': name });
     tallies.forEach(t => grid.append(tallyCard(t, t.id === bumpId)));
@@ -603,9 +607,44 @@ function drawToday(bumpId) {
 
 const NO_GROUP = '__none__';
 
-/* ---------- Group vision: why the goals in a group matter ---------- */
+/* ---------- Visions: why the goals matter ----------
+   Settings → Visions: 'groups' (one per group, from the eye beside each group's name), 'one' (one
+   overall vision, from the eye at the top), or 'both' (the top eye shows the overall vision plus
+   every group's). */
 const visionOf = g => ((state.settings.groupVisions || {})[g] || '').trim();
+const overallVision = () => (state.settings.vision || '').trim();
+const visionMode = () => state.settings.visionMode || 'groups';
 const VISION_PROMPT = 'Questions to think about:\n• What will these goals help you accomplish in the long run?\n• Why did you set them?\n• Who do they help you become?';
+const OVERALL_PROMPT = 'Questions to think about:\n• What do you want your life to look like in a few years?\n• Why do your goals matter to you?\n• Who are you becoming?';
+
+// The eye at the top of the home screen (for 'one' and 'both').
+function renderVisionTop() {
+  const btn = $('#btn-vision');
+  const show = visionMode() !== 'groups' && !editMode;
+  btn.classList.toggle('hidden', !show);
+  $('.today-header').classList.toggle('with-vision', show);
+  btn.classList.toggle('has', !!overallVision() || (visionMode() === 'both' && allGroupNames().some(visionOf)));
+  if (!btn.firstChild) btn.append(eyeIcon());
+}
+$('#btn-vision').addEventListener('click', () => overallVisionSheet());
+
+function overallVisionSheet() {
+  const both = visionMode() === 'both';
+  const groups = both ? allGroupNames() : [];
+  visionEditor({
+    title: 'Your vision',
+    intro: both ? 'Your big picture first, then each group’s vision below. Come back whenever you need the reminder.'
+      : 'Why do your goals matter to you? Come back here whenever you need the reminder.',
+    prompt: OVERALL_PROMPT,
+    value: overallVision(),
+    store: text => { if (text) state.settings.vision = text; else delete state.settings.vision; },
+    after: groups.length ? el('div', { class: 'vision-groups' },
+      el('div', { class: 'vision-card-head' }, 'BY GROUP'),
+      groups.map(g => el('button', { type: 'button', class: 'vision-group', onclick: () => visionSheet(g) },
+        el('strong', {}, g),
+        el('span', { class: visionOf(g) ? '' : 'empty' }, visionOf(g) || 'No vision yet. Tap to write one.')))) : null,
+  });
+}
 function eyeIcon() {
   const span = el('span', { class: 'eye', 'aria-hidden': 'true' });
   span.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -615,27 +654,42 @@ function visionButton(group) {
   return el('button', { type: 'button', class: `vision-btn${visionOf(group) ? ' has' : ''}`, 'aria-label': `${group} vision`, onclick: () => visionSheet(group) }, eyeIcon());
 }
 function visionSheet(group) {
-  const area = el('textarea', { class: 'text-area vision-input', rows: 6, placeholder: VISION_PROMPT });
-  area.value = visionOf(group);
+  visionEditor({
+    title: `${group} vision`,
+    intro: 'Why do the goals in this group matter to you? Come back here whenever you need the reminder.',
+    prompt: VISION_PROMPT,
+    value: visionOf(group),
+    store: text => { const v = (state.settings.groupVisions ||= {}); if (text) v[group] = text; else delete v[group]; },
+  });
+}
+
+// The sheet for writing a vision (overall or a group's).
+function visionEditor({ title, intro, prompt, value, store, after = null }) {
+  const area = el('textarea', { class: 'text-area vision-input', rows: 6, placeholder: prompt });
+  area.value = value;
   autoList(area);
   growWithText(area);
   const saveVision = () => {
-    const v = (state.settings.groupVisions ||= {});
-    if (area.value.trim()) v[group] = area.value.trim(); else delete v[group];
+    store(area.value.trim());
     save(); renderToday(); closeSheet();
     toast(area.value.trim() ? 'Vision saved' : 'Vision cleared');
   };
   openSheet(
-    el('div', { class: 'vision-head' }, eyeIcon(), el('h3', {}, `${group} vision`)),
-    el('p', {}, 'Why do the goals in this group matter to you? Come back here whenever you need the reminder.'),
+    el('div', { class: 'vision-head' }, eyeIcon(), el('h3', {}, title)),
+    el('p', {}, intro),
     area,
+    after,
     el('button', { class: 'sheet-btn primary', onclick: saveVision }, 'Save vision'),
     el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Cancel'),
   );
   fitTextArea(area);
   area.addEventListener('focus', () => $('#sheet').classList.add('full')); // writing: use the whole screen
-  // Swiped away or tapped outside: keep what was written (only Cancel throws it away).
-  onSheetDismiss = () => { if (area.value.trim() !== visionOf(group)) saveVision(); };
+  // Swiped away, tapped outside, or switched to a group's vision: keep what was written (only
+  // Cancel throws it away).
+  onSheetDismiss = () => { if (area.value.trim() !== value.trim()) saveVision(); };
+  after?.addEventListener('click', e => {
+    if (e.target.closest('.vision-group') && area.value.trim() !== value.trim()) { store(area.value.trim()); save(); }
+  }, true);
 }
 
 // Every group name, in the user's chosen order (new groups go at the end in order of first appearance).
@@ -2589,16 +2643,14 @@ function streakLine(t, n) {
 // The first time Goalie is opened each day: what you're doing well at.
 function streakPopup() {
   const today = dayKey(new Date());
-  if (state.settings.streakDay === today || !state.tallies.length) return;
+  if (state.settings.streakDay === today || !state.tallies.length || state.settings.dailyPopup === false) return;
   state.settings.streakDay = today; save();
   const streaks = state.tallies.map(t => ({ t, n: goalStreak(t) })).filter(x => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 6);
   // yesterday's daily goals
   const y0 = addDays(startOfDay(new Date()), -1).getTime(), y1 = startOfDay(new Date()).getTime();
   const daily = state.tallies.filter(t => t.reset === 'day' && !byDate(t) && (t.target > 0 || isCheck(t)) && goalStartDay(t) <= y0 && measuredWeekdays(t).includes(new Date(y0).getDay()));
   const doneYesterday = daily.filter(t => { const n = countedEntries(t).reduce((s, e) => (e.ts >= y0 && e.ts < y1 ? s + e.value : s), 0); return isCheck(t) ? (t.direction === 'decrease' ? n === 0 : n >= 1) : (t.direction === 'decrease' ? n <= t.target : n >= t.target); });
-  const visionGroups = allGroupNames().filter(visionOf);
-  const vg = visionGroups.length ? visionGroups[Math.floor(Date.now() / DAY_MS) % visionGroups.length] : null;
-  if (!streaks.length && !doneYesterday.length && !vg) return; // nothing to show yet
+  if (!streaks.length && !doneYesterday.length) return; // nothing to show yet
   const name = (state.settings.name || '').trim();
   const lines = streaks.map(({ t, n }) => ({ name: t.name, color: t.color, text: streakLine(t, n), n }));
   const yesterday = daily.length ? `Yesterday you completed ${doneYesterday.length} of ${daily.length} daily goal${daily.length === 1 ? '' : 's'}.` : '';
@@ -2609,7 +2661,6 @@ function streakPopup() {
       el('span', { class: 'streak-n', style: `background:${l.color};color:${inkClass(l.color) === 'on-light' ? '#1c2a4a' : '#fff'}` }, String(l.n)),
       el('span', { class: 'streak-text' }, el('strong', {}, l.name), el('span', {}, l.text))))) : null,
     streaks.length && yesterday ? el('p', {}, yesterday) : null,
-    vg ? el('div', { class: 'vision-card' }, el('div', { class: 'vision-card-head' }, eyeIcon(), `YOUR ${vg.toUpperCase()} VISION`), el('p', {}, visionOf(vg))) : null,
     el('button', { class: 'sheet-btn primary', onclick: closeSheet }, 'Let’s go'),
     el('button', { class: 'sheet-btn', onclick: () => shareImage(drawStreakImage(lines, yesterday, name), 'goalie-streaks') }, 'Share'),
   );
@@ -3069,6 +3120,10 @@ function renderSettings() {
   $$('#set-weekstart button').forEach(b => b.classList.toggle('on', +b.dataset.v === state.settings.weekStart));
   $$('#set-custommode button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.customDateMode || 'add')));
   $$('#set-calmode button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.calendarMode || 'complete')));
+  $$('#set-cardsize button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.cardSize || 'm')));
+  $$('#set-visionmode button').forEach(b => b.classList.toggle('on', b.dataset.v === visionMode()));
+  $$('#set-dailypopup button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.dailyPopup === false ? 'off' : 'on')));
+  $$('#set-todolist button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.todoList === false ? 'off' : 'on')));
   $('#updates-section').classList.toggle('hidden', isNativeApp); // the App Store handles updates
   const status = $('#notify-status');
   if (isNativeApp) {
@@ -3272,6 +3327,17 @@ $('#set-calmode').addEventListener('click', e => {
   state.settings.calendarMode = b.dataset.v;
   save(); renderSettings();
 });
+
+// Customizable App Features
+const featureSetting = (id, apply) => $(id).addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  apply(b.dataset.v);
+  save(); renderSettings(); renderToday();
+});
+featureSetting('#set-cardsize', v => { state.settings.cardSize = v; });
+featureSetting('#set-visionmode', v => { state.settings.visionMode = v; });
+featureSetting('#set-dailypopup', v => { state.settings.dailyPopup = v === 'on'; });
+featureSetting('#set-todolist', v => { state.settings.todoList = v === 'on'; });
 
 $('#trash-toggle').addEventListener('click', () => {
   state.settings.trashOpen = !state.settings.trashOpen;
