@@ -432,7 +432,8 @@ function refreshAccountUI() {
   } else {
     box.append(
       el('div', { class: 'account-who' },
-        el('strong', {}, acct.email || 'Signed in'),
+        // "Hide My Email" gives a random @privaterelay.appleid.com address; show that plainly instead.
+        el('strong', {}, /@privaterelay\.appleid\.com$/i.test(acct.email) ? 'Apple ID · email hidden' : (acct.email || 'Signed in')),
         el('span', {}, acct.provider === 'apple' ? 'Signed in with Apple' : 'Signed in with Google')),
       el('p', { class: 'note' }, statusText()),
       el('button', { type: 'button', class: 'row-btn', onclick: signOutHere }, 'Sign out'),
