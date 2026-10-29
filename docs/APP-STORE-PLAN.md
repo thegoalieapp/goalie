@@ -23,7 +23,12 @@ Notes for whoever picks this up next (e.g. Claude Code on the Mac). Everything b
   - A lock lifts when all of its goals are completed. "Completed" uses the same rule as the app: increase goals reach the target, decrease goals stay within the limit, ✓/✗ goals are checked.
   - **Re-locking follows each goal's period** (daily goals re-lock each morning, weekly goals each new week, and so on). This needs a DeviceActivityMonitor extension so it happens even when Goalie is closed.
   - **No emergency unlocks.** (The user can still revoke Screen Time permission in iOS Settings; Apple requires that.)
-  - Needs the **Family Controls (Distribution) entitlement** from Apple. If it isn't approved in time, ship without locks and add them in an update. Don't submit with the capability unapproved.
+  - **While a lock is locked, it can only get stricter:** apps and goals can be added, but not removed, and the lock can't be deleted until it unlocks. (Decided 2026-10-29.)
+  - **Any goal can unlock a lock:** daily, weekly, monthly, yearly and by-date goals alike. (Decided 2026-10-29.)
+  - **The lock screen lists the goals still left, with progress** (e.g. "Workout 15/45 min · Scripture ✓"), plus a reminder to open Goalie. (Decided 2026-10-29.)
+  - Apple's privacy rules mean Goalie only gets coded tokens for the picked apps, never their names, so the Locks screen shows counts ("3 apps, 1 category").
+  - **Family Controls (Distribution) was approved** (reported 2026-10-29), so locks can be tested through TestFlight.
+- **Launch plan (decided 2026-10-29): 1.0 ships without app locks and widgets**; they come in 1.1 right after. The reason: they're native Swift work tested only through cloud builds, and rushing them risked missing Nov 1.
 - **Android:** no app locks at first (Android has no Screen Time equivalent; Play restricts AccessibilityService use). New personal Play accounts need a 14-day closed test with 12+ testers.
 
 ## Owner's to-do (accounts)
