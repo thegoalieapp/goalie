@@ -87,9 +87,39 @@ jobs:
           KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           P8: ${{ secrets.APPSTORE_P8 }}
         run: |
+          # Stray spaces or line breaks copied along with the IDs break the sign-in, so drop them.
+          KEY_ID=$(printf '%s' "$KEY_ID" | tr -d '[:space:]')
+          ISSUER_ID=$(printf '%s' "$ISSUER_ID" | tr -d '[:space:]')
           KEY="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
           trap 'rm -f "$KEY"' EXIT
-          printf '%s\n' "$P8" > "$KEY"
+          printf '%s\n' "$P8" | tr -d '\r' > "$KEY"
+
+          # Check each secret's shape (reporting which one is off, never its value).
+          bad=0
+          [[ "$KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "::error::APPSTORE_KEY_ID isn't shaped like a Key ID (10 capital letters/numbers); it has ${#KEY_ID} characters"; bad=1; }
+          [[ "$ISSUER_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || { echo "::error::APPSTORE_ISSUER_ID isn't shaped like an Issuer ID (the long ID with dashes above the Team Keys table); it has ${#ISSUER_ID} characters"; bad=1; }
+          grep -q -- '-----BEGIN PRIVATE KEY-----' "$KEY" && grep -q -- '-----END PRIVATE KEY-----' "$KEY" || { echo "::error::APPSTORE_P8 is missing its BEGIN/END PRIVATE KEY lines (paste the whole .p8 file)"; bad=1; }
+          [ "$bad" = 0 ] || exit 1
+
+          # Sign in to App Store Connect with the key directly, so a refusal is reported plainly.
+          STATUS=$(KEY_FILE="$KEY" KEY_ID="$KEY_ID" ISSUER_ID="$ISSUER_ID" node -e '
+            const crypto = require("crypto"), fs = require("fs");
+            const b64 = x => Buffer.from(x).toString("base64url");
+            const now = Math.floor(Date.now() / 1000);
+            const head = b64(JSON.stringify({ alg: "ES256", kid: process.env.KEY_ID, typ: "JWT" }));
+            const body = b64(JSON.stringify({ iss: process.env.ISSUER_ID, iat: now, exp: now + 600, aud: "appstoreconnect-v1" }));
+            const sig = crypto.sign("sha256", Buffer.from(head + "." + body), { key: fs.readFileSync(process.env.KEY_FILE), dsaEncoding: "ieee-p1363" });
+            fetch("https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.thegoalieapp.goalie", { headers: { Authorization: "Bearer " + head + "." + body + "." + b64(sig) } })
+              .then(async r => console.log(r.status, r.ok ? "" : JSON.stringify((await r.json()).errors?.map(e => e.title + ": " + e.detail))))
+              .catch(e => console.log("0", e.message));
+          ' 2>&1) || true
+          echo "App Store Connect key check: $STATUS"
+          case "$STATUS" in
+            200*) ;;
+            401*) echo "::error::Apple refused the API key (401). The Key ID, Issuer ID and .p8 file don't belong together: re-enter all three from the same Team Key."; exit 1 ;;
+            403*) echo "::error::Apple accepted the key but it lacks access (403): $STATUS. The key needs Admin access."; exit 1 ;;
+            *) echo "::error::App Store Connect key check failed: $STATUS"; exit 1 ;;
+          esac
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
