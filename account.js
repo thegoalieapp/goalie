@@ -186,10 +186,18 @@ async function startSync(user) {
   if (!state.settings.name && user.displayName) { state.settings.name = user.displayName.split(' ')[0]; save(); }
 
   await storageReady; // the IndexedDB copy must be loaded before comparing with the cloud
-  try { cloud.base = JSON.parse(await idbGet(baseKey()) || 'null'); } catch (e) { cloud.base = null; }
+  let base = null;
+  try { base = JSON.parse(await idbGet(baseKey()) || 'null'); } catch (e) { /* none yet */ }
+  if (cloud.user !== user) return; // signed out (or switched) while loading
+  cloud.base = base;
 
   const userDoc = fb.doc(cloud.db, 'users', user.uid);
-  const onError = err => { setStatus('error', err); };
+  // A live connection that drops (server hiccup, expired sign-in) reconnects half a minute later.
+  const onError = err => {
+    setStatus('error', err);
+    clearTimeout(cloud.retry);
+    cloud.retry = setTimeout(() => { if (cloud.user === user) { cloud.user = null; startSync(user); } }, 30000);
+  };
   const onUpdate = () => { if (assembleRemote()) reconcile(); };
   cloud.unsub.push(
     fb.onSnapshot(userDoc, { includeMetadataChanges: true }, snap => { cloud.mainSnap = snap; onUpdate(); }, onError),
@@ -202,6 +210,7 @@ function stopSync({ keepAccount = false } = {}) {
   cloud.unsub.forEach(u => u());
   Object.assign(cloud, { unsub: [], user: null, base: null, remote: null, remoteMeta: null, remoteReady: false, mainSnap: null, monthsSnap: null, again: false });
   clearTimeout(cloud.timer);
+  clearTimeout(cloud.retry);
   if (!keepAccount) writeAccount(null);
   setStatus('off');
 }
@@ -243,6 +252,8 @@ async function reconcile() {
     } while (cloud.again);
   } catch (err) {
     setStatus('error', err);
+    clearTimeout(cloud.timer);
+    cloud.timer = setTimeout(reconcile, 30000); // try again (offline changes stay saved on the phone)
   } finally {
     cloud.busy = false;
   }
@@ -443,7 +454,7 @@ function refreshAccountUI() {
   const where = $('#storage-note');
   if (where) where.textContent = acct
     ? 'Your data is saved on this device and backed up to your account.'
-    : 'Data is stored only on this device. Deleting Goalie from your Home Screen erases it, so sign in or export a backup first.';
+    : `Data is stored only on this device. Deleting Goalie${isNative() ? '' : ' from your Home Screen'} erases it, so sign in or export a backup first.`;
 }
 
 function confirmDeleteAccount() {

@@ -5,6 +5,10 @@
    ========================================================= */
 const STORE_KEY = 'goalie.v1';
 
+// The App Store app (Capacitor) rather than the web app: no install tips or self-updates, and
+// reminders use real iPhone notifications.
+const isNativeApp = !!window.Capacitor?.isNativePlatform?.();
+
 // 5 color families × 5 shades, light → dark. Shown as a 5×5 grid in the goal form.
 const PALETTE = [
   { name: 'Sky', shades: ['#a9d6f5', '#6ec1f0', '#4aa8e2', '#2b7fc4', '#1d4e89'] },
@@ -198,6 +202,7 @@ function save() {
     if (!storage.idbWorks) toast('Could not save — storage full or blocked');
   }
   window.goalieCloud?.changed(); // signed in: back up and sync (account.js)
+  window.goalieReminders?.(); // App Store app: keep iPhone reminders in step with the goals
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -1449,8 +1454,8 @@ $('#btn-help').addEventListener('click', () => {
       el('li', {}, 'Tap a goal card (or its +) to check in. Use − to take one back. Hold a card to log a custom amount or date, undo or redo, edit or delete it.'),
       el('li', {}, 'Tap the pencil (top right) to reorder goals, drag the group chips to reorder groups, delete goals, or remove group names.'),
       el('li', {}, 'Tap the chart icon to see your day, week, month and year. Tap any bar or point to view or edit that day.')),
-    el('h3', {}, 'Install on iPhone'),
-    el('ol', {},
+    isNativeApp ? null : el('h3', {}, 'Install on iPhone'),
+    isNativeApp ? null : el('ol', {},
       el('li', {}, 'Open this page in Safari.'),
       el('li', {}, 'Tap Share, then “Add to Home Screen”.'),
       el('li', {}, 'Launch it from the home screen icon — it runs full-screen and works offline.')),
@@ -3064,8 +3069,11 @@ function renderSettings() {
   $$('#set-weekstart button').forEach(b => b.classList.toggle('on', +b.dataset.v === state.settings.weekStart));
   $$('#set-custommode button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.customDateMode || 'add')));
   $$('#set-calmode button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.calendarMode || 'complete')));
+  $('#updates-section').classList.toggle('hidden', isNativeApp); // the App Store handles updates
   const status = $('#notify-status');
-  if (!('Notification' in window)) {
+  if (isNativeApp) {
+    renderNativeNotifyStatus();
+  } else if (!('Notification' in window)) {
     status.textContent = 'System banners need Goalie added to your Home Screen (iOS 16.4+). In-app banners still work.';
   } else {
     status.textContent = {
@@ -3384,11 +3392,68 @@ $('#btn-wipe').addEventListener('click', () => {
    Reminders (system banner + in-app banner)
    ========================================================= */
 async function ensureNotifyPermission() {
+  if (isNativeApp) {
+    const plugin = nativeNotify();
+    if (!plugin) return false;
+    try {
+      let { display } = await plugin.checkPermissions();
+      if (display === 'prompt' || display === 'prompt-with-rationale') ({ display } = await plugin.requestPermissions());
+      scheduleNativeReminders(true);
+      return display === 'granted';
+    } catch (e) { return false; }
+  }
   if (!('Notification' in window)) return false;
   if (Notification.permission === 'default') {
     try { await Notification.requestPermission(); } catch (e) { /* ignore */ }
   }
   return Notification.permission === 'granted';
+}
+
+/* App Store app: reminders are real iPhone notifications, scheduled for each goal's reminder time on
+   its days, so they arrive even when Goalie is closed. (The web app can only remind while it's
+   open.) Rescheduled whenever a goal's name, reminder or days change. */
+const nativeNotify = () => window.Capacitor?.Plugins?.LocalNotifications;
+const REMINDER_ID = 100000; // Goalie's reminder notifications use ids from here up
+let reminderTimer = null, reminderSig = null;
+function scheduleNativeReminders(force = false) {
+  if (!isNativeApp || !nativeNotify()) return;
+  const goals = state.tallies.filter(t => t.reminder && !(byDate(t) && Date.now() >= dueEndMs(t)));
+  const sig = JSON.stringify(goals.map(t => [t.id, t.name, t.reminder, t.days]));
+  if (!force && sig === reminderSig) return;
+  reminderSig = sig;
+  clearTimeout(reminderTimer);
+  reminderTimer = setTimeout(async () => {
+    const plugin = nativeNotify();
+    try {
+      const { notifications } = await plugin.getPending();
+      const ours = notifications.filter(n => n.id >= REMINDER_ID);
+      if (ours.length) await plugin.cancel({ notifications: ours.map(n => ({ id: n.id })) });
+      if ((await plugin.checkPermissions()).display !== 'granted') return;
+      const list = [];
+      goals.forEach((t, i) => {
+        const [hour, minute] = t.reminder.split(':').map(Number);
+        const days = t.days?.length ? t.days : [0, 1, 2, 3, 4, 5, 6];
+        const note = (id, on) => ({ id, title: t.name, body: 'Time to check in.', schedule: { on, allowWhileIdle: true }, extra: { tallyId: t.id } });
+        // Every day: one daily notification. Some days: one per weekday (iOS weekdays: Sunday = 1).
+        if (days.length === 7) list.push(note(REMINDER_ID + i * 10, { hour, minute }));
+        else for (const d of days) list.push(note(REMINDER_ID + i * 10 + d + 1, { weekday: d + 1, hour, minute }));
+      });
+      // iPhone keeps at most 64 scheduled notifications per app.
+      if (list.length) await plugin.schedule({ notifications: list.slice(0, 64) });
+    } catch (e) { console.warn('Goalie reminders:', e); }
+  }, 1000);
+}
+if (isNativeApp) { window.goalieReminders = () => scheduleNativeReminders(); scheduleNativeReminders(true); }
+async function renderNativeNotifyStatus() {
+  const plugin = nativeNotify();
+  $('#btn-notify').textContent = 'Turn on reminders';
+  let display = 'denied';
+  try { ({ display } = await plugin.checkPermissions()); } catch (e) { /* no plugin */ }
+  $('#notify-status').textContent = display === 'granted'
+    ? 'Reminders are on. Each goal’s reminder arrives at its time, even when Goalie is closed.'
+    : display === 'denied'
+      ? 'Notifications are off for Goalie. Turn them on in iPhone Settings → Notifications → Goalie.'
+      : 'Tap above to allow reminders. Set a reminder time on any goal.';
 }
 
 // The icon badge feature was removed; clear any badge an older version left behind.

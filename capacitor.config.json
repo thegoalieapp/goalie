@@ -10,6 +10,9 @@
     "FirebaseAuthentication": {
       "skipNativeAuth": true,
       "providers": ["apple.com", "google.com"]
+    },
+    "LocalNotifications": {
+      "presentationOptions": []
     }
   },
   "experimental": {
