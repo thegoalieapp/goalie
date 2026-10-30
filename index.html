@@ -299,6 +299,12 @@
       <div class="field-label">ACCOUNT</div>
       <div id="account-box" class="account-box"></div>
 
+      <div id="locks-settings" class="hidden">
+        <div class="field-label">APP LOCKS</div>
+        <button class="row-btn" id="btn-locks">App locks</button>
+        <p class="note">Lock apps like social media until your goals are done.</p>
+      </div>
+
       <div class="field-label">APPEARANCE</div>
       <div class="seg pills" id="set-theme">
         <button type="button" data-v="light">LIGHT</button>
@@ -391,6 +397,18 @@
     </div>
   </section>
 
+  <!-- APP LOCKS (App Store app only; locks.js) -->
+  <section id="screen-locks" class="screen modal">
+    <div class="modal-head">
+      <h1>APP LOCKS</h1>
+      <button class="close-btn" data-close aria-label="Close">&times;</button>
+    </div>
+    <div class="form-scroll">
+      <div id="locks-body" class="locks-body"></div>
+      <div class="form-spacer"></div>
+    </div>
+  </section>
+
   <!-- Sheet (action sheets, prompts) -->
   <div id="sheet-backdrop" class="sheet-backdrop"></div>
   <div id="sheet" class="sheet" role="dialog" aria-modal="true"></div>
@@ -400,5 +418,6 @@
 
   <script src="app.js"></script>
   <script src="account.js"></script>
+  <script src="locks.js"></script>
 </body>
 </html>

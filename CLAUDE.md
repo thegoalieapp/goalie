@@ -23,4 +23,5 @@ The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.githu
 ## Next steps
 1. Get the first TestFlight build through (check the Actions log, especially the entitlements step: Sign in with Apple must be listed).
 2. Test Sign in with Apple and Google natively, plus sync.
-3. Still to build: the Screen Time app-lock screens and Swift extensions, widgets, and store materials (screenshots for iPhone **and iPad**, description, privacy answers).
+3. App locks are built (locks.js, ios/App/App/GoalieLocks/, the three helpers in ios/App/GoalieMonitor, GoalieShield and GoalieShieldAction). The helpers are added to the Xcode project by `tools/add-lock-targets.rb`, which the cloud build runs; run it on a Mac too before opening Xcode. Needs the App Group `group.com.thegoalieapp.goalie` on all four IDs.
+4. Still to build: widgets, and store materials (screenshots for iPhone **and iPad**, description, privacy answers). The owner chose to ship 1.0 with app locks included (one submission).

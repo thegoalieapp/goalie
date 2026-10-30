@@ -49,6 +49,11 @@ jobs:
       - name: Copy the app into the iPhone project
         run: npm run ios
 
+      - name: Add the app-lock helpers to the project
+        run: |
+          ruby -e "require 'xcodeproj'" 2>/dev/null || sudo gem install xcodeproj --no-document
+          ruby tools/add-lock-targets.rb
+
       # Unsigned: Xcode 26 refuses ad hoc signing while building ("not allowed with SDK iOS 26").
       # If it fails, the error lines are posted as annotations on the run page, which anyone can
       # read (the full log needs a GitHub sign-in).
@@ -72,13 +77,19 @@ jobs:
               exit 1
             }
 
-      # Stamp the app's permissions (Sign in with Apple) on the unsigned app, so the export step
-      # carries them over when it signs it for real.
-      - name: Add the app's permissions (Sign in with Apple)
+      # Stamp each piece's permissions (Sign in with Apple, Screen Time, the shared App Group) on the
+      # unsigned app and its lock helpers, helpers first, so the export step carries them over when it
+      # signs everything for real.
+      - name: Add the app's permissions (Sign in with Apple, Screen Time)
         run: |
           APP="$RUNNER_TEMP/Goalie.xcarchive/Products/Applications/App.app"
+          for EXT in "$APP"/PlugIns/*.appex; do
+            NAME=$(basename "$EXT" .appex)
+            codesign --force --sign - --entitlements "ios/App/$NAME/$NAME.entitlements" --generate-entitlement-der "$EXT"
+            echo "== $NAME"; codesign -d --entitlements - "$EXT"
+          done
           codesign --force --sign - --entitlements ios/App/App/App.entitlements --generate-entitlement-der "$APP"
-          codesign -d --entitlements - "$APP"
+          echo "== App"; codesign -d --entitlements - "$APP"
 
       - name: Sign with Apple's cloud certificate and upload to TestFlight
         env:

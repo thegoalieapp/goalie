@@ -203,6 +203,7 @@ function save() {
   }
   window.goalieCloud?.changed(); // signed in: back up and sync (account.js)
   window.goalieReminders?.(); // App Store app: keep iPhone reminders in step with the goals
+  window.goalieLocks?.(); // App Store app: lock or unlock apps as goals get done (locks.js)
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
