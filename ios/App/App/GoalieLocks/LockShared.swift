@@ -150,6 +150,7 @@ struct ScreenGoal: Codable {
     var from: String?    // locked hours: "22:00" to "07:00" (none: no locked hours)
     var to: String?
     var days: [Int]?     // the days it applies: 0 = Sunday … 6 = Saturday (none: every day)
+    var each: Bool?      // daily limit for each app on its own (true) or all of them combined (none / false)
 
     /// Whether the limit applies on the day of this date.
     func appliesOn(_ date: Date) -> Bool {
@@ -284,11 +285,66 @@ enum ScreenStorage {
     /// The goal's limit-lock that covers an app, for the lock screen.
     static func limitGoal(covering app: ApplicationToken?, category: ActivityCategoryToken?, web: WebDomainToken?) -> ScreenGoal? {
         goals().first { goal in
-            guard goal.lock, goal.limit > 0, goal.appliesOn(Date()), minutesToday(goal.key) >= goal.limit, let picked = selection(goal.key) else { return false }
+            guard goal.lock, goal.limit > 0, goal.appliesOn(Date()) else { return false }
+            if goal.each == true { // only the apps that reached their own limit
+                let hit = reachedItems(goal.key)
+                if let app, hit.apps.contains(app) { return true }
+                if let web, hit.webs.contains(web) { return true }
+                if let category, hit.categories.contains(category) { return true }
+                return false
+            }
+            guard minutesToday(goal.key) >= goal.limit, let picked = selection(goal.key) else { return false }
             if let app, picked.applicationTokens.contains(app) { return true }
             if let web, picked.webDomainTokens.contains(web) { return true }
             if let category, picked.categoryTokens.contains(category) { return true }
             return false
         }
+    }
+
+    /* "Each" limits: every app, category and website gets its own daily limit. Each one has an
+       event named "i<n>" (its place in the saved list below); when one reaches the limit, only it
+       is locked, until midnight. */
+    struct Items: Codable {
+        var apps: [ApplicationToken] = []
+        var categories: [ActivityCategoryToken] = []
+        var webs: [WebDomainToken] = []
+    }
+    /// The order the "i<n>" events were made in (a selection's sets have no fixed order).
+    static func items(_ key: String) -> Items? {
+        guard let data = LockShared.defaults.data(forKey: "screenItems-\(key)") else { return nil }
+        return try? PropertyListDecoder().decode(Items.self, from: data)
+    }
+    static func saveItems(_ items: Items, for key: String) {
+        LockShared.defaults.set(try? PropertyListEncoder().encode(items), forKey: "screenItems-\(key)")
+    }
+    /// Which items reached their limit today ("i<n>" numbers).
+    static func reachedToday(_ key: String) -> [Int] {
+        guard let saved = LockShared.defaults.dictionary(forKey: "screenReached-\(key)"),
+              saved["day"] as? String == LockStorage.dayKey() else { return [] }
+        return saved["items"] as? [Int] ?? []
+    }
+    static func markReached(_ key: String, item: Int) {
+        let list = Array(Set(reachedToday(key) + [item])).sorted()
+        LockShared.defaults.set(["day": LockStorage.dayKey(), "items": list], forKey: "screenReached-\(key)")
+    }
+    static func clearReached(_ key: String) { LockShared.defaults.removeObject(forKey: "screenReached-\(key)") }
+    /// The tokens of today's reached items.
+    static func reachedItems(_ key: String) -> (apps: Set<ApplicationToken>, categories: Set<ActivityCategoryToken>, webs: Set<WebDomainToken>) {
+        guard let list = items(key) else { return ([], [], []) }
+        var apps = Set<ApplicationToken>(), categories = Set<ActivityCategoryToken>(), webs = Set<WebDomainToken>()
+        for n in reachedToday(key) {
+            if n < list.apps.count { apps.insert(list.apps[n]) }
+            else if n < list.apps.count + list.categories.count { categories.insert(list.categories[n - list.apps.count]) }
+            else if n < list.apps.count + list.categories.count + list.webs.count { webs.insert(list.webs[n - list.apps.count - list.categories.count]) }
+        }
+        return (apps, categories, webs)
+    }
+    /// Lock just the items that reached their own limit today.
+    static func lockReached(_ key: String) {
+        let hit = reachedItems(key)
+        let store = store(key)
+        store.shield.applications = hit.apps.isEmpty ? nil : hit.apps
+        store.shield.applicationCategories = hit.categories.isEmpty ? nil : .specific(hit.categories)
+        store.shield.webDomains = hit.webs.isEmpty ? nil : hit.webs
     }
 }

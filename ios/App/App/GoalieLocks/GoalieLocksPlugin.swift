@@ -121,12 +121,22 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let picked = ScreenStorage.selection(goal.key) else { continue }
             // Start (or restart) listening only when the apps or the limit changed: restarting
             // mid-day would hear today's steps again.
-            let sig = "\(goal.limit)"
+            let each = goal.each == true && goal.limit > 0
+            let sig = "\(goal.limit)\(each ? "-each" : "")"
             let activity = ScreenStorage.activity(goal.key)
             if LockShared.defaults.string(forKey: "screenSig-\(goal.key)") != sig || !center.activities.contains(activity) {
                 var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
                 for minutes in ScreenStorage.steps(limit: goal.limit) {
                     events[DeviceActivityEvent.Name("m\(minutes)")] = Self.event(picked, minutes: minutes)
+                }
+                if each { // every app, category and website: its own "reached the limit" signal
+                    let items = ScreenStorage.Items(apps: Array(picked.applicationTokens), categories: Array(picked.categoryTokens), webs: Array(picked.webDomainTokens))
+                    ScreenStorage.saveItems(items, for: goal.key)
+                    var n = 0
+                    for app in items.apps { events[DeviceActivityEvent.Name("i\(n)")] = Self.event(apps: [app], minutes: goal.limit); n += 1 }
+                    for category in items.categories { events[DeviceActivityEvent.Name("i\(n)")] = Self.event(categories: [category], minutes: goal.limit); n += 1 }
+                    for web in items.webs { events[DeviceActivityEvent.Name("i\(n)")] = Self.event(webs: [web], minutes: goal.limit); n += 1 }
+                    ScreenStorage.clearReached(goal.key) // the list changed: its numbers start over
                 }
                 center.stopMonitoring([activity])
                 do {
@@ -139,7 +149,11 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
                     // Not listening; the next call tries again.
                 }
             }
-            if goal.lock && goal.limit > 0 && goal.appliesOn(Date()) && ScreenStorage.minutesToday(goal.key) >= goal.limit {
+            if !goal.lock || goal.limit == 0 || !goal.appliesOn(Date()) {
+                ScreenStorage.unlockApps(goal.key)
+            } else if each {
+                ScreenStorage.lockReached(goal.key) // just the apps at their own limit (none: nothing locked)
+            } else if ScreenStorage.minutesToday(goal.key) >= goal.limit {
                 ScreenStorage.lockApps(goal.key)
             } else {
                 ScreenStorage.unlockApps(goal.key)
@@ -150,7 +164,10 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         for (key, days) in ScreenStorage.usage() {
             usage[key] = days.mapValues { ["minutes": $0.minutes, "at": $0.at] }
         }
-        call.resolve(["usage": usage])
+        // How many apps reached their own limit today ("each" limits), for the cards in Goalie.
+        var reached: [String: Any] = [:]
+        for goal in goals where goal.each == true { reached[goal.key] = ScreenStorage.reachedToday(goal.key).count }
+        call.resolve(["usage": usage, "reached": reached])
     }
 
     /// Locked hours: iPhone wakes the re-locker when they start and end, every day (even when they
@@ -183,13 +200,17 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
     /// "These apps reached this many minutes today", counting use from before Goalie started
     /// listening where iOS allows it.
     private static func event(_ picked: FamilyActivitySelection, minutes: Int) -> DeviceActivityEvent {
+        event(apps: picked.applicationTokens, categories: picked.categoryTokens, webs: picked.webDomainTokens, minutes: minutes)
+    }
+
+    private static func event(apps: Set<ApplicationToken> = [], categories: Set<ActivityCategoryToken> = [],
+                              webs: Set<WebDomainToken> = [], minutes: Int) -> DeviceActivityEvent {
         let threshold = DateComponents(minute: minutes)
         if #available(iOS 17.4, *) {
-            return DeviceActivityEvent(applications: picked.applicationTokens, categories: picked.categoryTokens,
-                                       webDomains: picked.webDomainTokens, threshold: threshold, includesPastActivity: true)
+            return DeviceActivityEvent(applications: apps, categories: categories, webDomains: webs,
+                                       threshold: threshold, includesPastActivity: true)
         }
-        return DeviceActivityEvent(applications: picked.applicationTokens, categories: picked.categoryTokens,
-                                   webDomains: picked.webDomainTokens, threshold: threshold)
+        return DeviceActivityEvent(applications: apps, categories: categories, webDomains: webs, threshold: threshold)
     }
 
     private struct UpdatePayload: Decodable {

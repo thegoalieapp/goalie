@@ -35,6 +35,14 @@ class GoalieShield: ShieldConfigurationDataSource {
         return screen(for: LockStorage.lock(covering: app, category: category, web: web))
     }
 
+    /// "30 minutes", "1 hour", "1 hr 30 min".
+    private func duration(_ minutes: Int) -> String {
+        let h = minutes / 60, m = minutes % 60
+        if h == 0 { return "\(m) minute\(m == 1 ? "" : "s")" }
+        if m == 0 { return "\(h) hour\(h == 1 ? "" : "s")" }
+        return "\(h) hr \(m) min"
+    }
+
     /// "10:00 PM" for "22:00".
     private func clock(_ hhmm: String?) -> String {
         let parts = (hhmm ?? "").split(separator: ":").compactMap { Int($0) }
@@ -66,7 +74,9 @@ class GoalieShield: ShieldConfigurationDataSource {
             icon: UIImage(named: dark ? "ShieldIcon" : "ShieldIconNavy"),
             title: ShieldConfiguration.Label(text: "\(goal.name): limit reached", color: Self.ink),
             subtitle: ShieldConfiguration.Label(
-                text: "You've used your \(goal.limit) minutes for today.\nThese apps unlock at midnight.",
+                text: goal.each == true
+                    ? "This app has used its \(duration(goal.limit)) for today.\nIt unlocks at midnight."
+                    : "You've used your \(duration(goal.limit)) for today.\nThese apps unlock at midnight.",
                 color: Self.ink.withAlphaComponent(0.85)),
             primaryButtonLabel: ShieldConfiguration.Label(text: "OK", color: Self.paper),
             primaryButtonBackgroundColor: Self.ink)

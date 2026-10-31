@@ -1878,3 +1878,9 @@ button.account-who { width: 100%; text-align: left; position: relative; padding-
 .sheet .seg.pills button.on, .sheet .days button.on { background: #cdd3dc; border-color: #cdd3dc; }
 html[data-theme="dark"] .sheet .seg.pills button.on, html[data-theme="dark"] .sheet .days button.on { background: #4a5670; border-color: #4a5670; color: #fff; }
 .limit-days { margin-bottom: 4px; }
+
+/* Screen-time limits: hours and minutes wheels; the "Are these right?" summary */
+.wheels.duration-wheels { grid-template-columns: 1fr 1fr; }
+.confirm-summary { display: flex; flex-direction: column; gap: 4px; }
+.confirm-summary p { margin: 4px 0; }
+.confirm-summary ul { margin: 2px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--navy); line-height: 1.45; }
