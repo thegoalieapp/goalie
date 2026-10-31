@@ -20,8 +20,9 @@ Goalie is Tanner Witte's goal and habit tracker: a vanilla JS web app (`index.ht
 ## Building the app
 The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.github/workflows/testflight.yml` builds on GitHub's macOS 15 runner (Xcode 26.3; macOS 26 runners were too busy) on every push to `app-store` and uploads to TestFlight. Signing is manual (Family Controls Distribution only goes into hand-made profiles): the Apple Distribution certificate is in the `DIST_P12`/`DIST_P12_PASSWORD` secrets (its key and files are in the owner's `Documents\Goalie signing` folder, never in the repo), and the four portal profiles ("Goalie App Store", "Goalie Monitor App Store", "Goalie Shield App Store", "Goalie Shield Action App Store") are downloaded by name. Changing an App ID's capabilities makes its profiles Invalid: regenerate them in the portal. The owner tests through the TestFlight app. `docs/MAC-SESSION.md` is the fallback if a Mac becomes available.
 
-## Next steps
-1. Get the first TestFlight build through (check the Actions log, especially the entitlements step: Sign in with Apple must be listed).
-2. Test Sign in with Apple and Google natively, plus sync.
-3. App locks are built (locks.js, ios/App/App/GoalieLocks/, the three helpers in ios/App/GoalieMonitor, GoalieShield and GoalieShieldAction). The helpers are added to the Xcode project by `tools/add-lock-targets.rb`, which the cloud build runs; run it on a Mac too before opening Xcode. Needs the App Group `group.com.thegoalieapp.goalie` on all four IDs.
-4. Still to build: widgets, and store materials (screenshots for iPhone **and iPad**, description, privacy answers). The owner chose to ship 1.0 with app locks included (one submission).
+## Status (2026-10-30)
+- Build 12 (TestFlight) is the 1.0 submission build: sign-in and sync, app locks, screen-time limits (Settings → App Locks · Screen Time; they always lock at the limit and also show as a goal card), real reminders, iPad layout, Customizable App Features.
+- Screen Time minutes (entries with auto: true) never sync to the cloud: account.js keeps them, and deleted limits' minutes, out of the cloud copy. Keep it that way (privacy policy and Apple's Screen Time rules).
+- App locks: locks.js, ios/App/App/GoalieLocks/, and the helpers in ios/App/GoalieMonitor, GoalieShield and GoalieShieldAction, added to the Xcode project by tools/add-lock-targets.rb (the cloud build runs it).
+- The App Store listing text, privacy answers and review notes are on a Claude artifact page; screenshots are in the owner's DocumentsGoalie App Store screenshots.
+- Still to do after launch: widgets.
