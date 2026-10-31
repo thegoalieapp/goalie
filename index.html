@@ -319,38 +319,15 @@
       <div class="field-label">ACCOUNT</div>
       <div id="account-box" class="account-box"></div>
 
+      <div class="field-label">NOTIFICATIONS</div>
+      <button class="row-btn" id="btn-notify">Turn on reminder banners</button>
+      <p class="note" id="notify-status"></p>
+
       <div id="locks-settings" class="hidden">
-        <div class="field-label">APP LOCKS</div>
-        <button class="row-btn" id="btn-locks">App locks</button>
+        <div class="field-label">APP LOCKS · SCREEN TIME</div>
+        <button class="row-btn" id="btn-locks">App Locks · Screen Time</button>
         <p class="note">Lock apps like social media until your goals are done.</p>
       </div>
-
-      <div class="field-label">APPEARANCE</div>
-      <div class="seg pills" id="set-theme">
-        <button type="button" data-v="light">LIGHT</button>
-        <button type="button" data-v="dark">DARK</button>
-        <button type="button" data-v="auto">AUTO</button>
-      </div>
-      <p class="note">Auto follows your iPhone’s light / dark setting.</p>
-
-      <div class="field-label">WEEK STARTS ON</div>
-      <div class="seg pills" id="set-weekstart">
-        <button type="button" data-v="0">SUNDAY</button>
-        <button type="button" data-v="1">MONDAY</button>
-      </div>
-
-      <div class="field-label">WHEN LOGGING CUSTOM DATES:</div>
-      <div class="seg pills stack" id="set-custommode">
-        <button type="button" data-v="add">ADD CUSTOM AMOUNT TO EXISTING NUMBER</button>
-        <button type="button" data-v="replace">REPLACE EXISTING NUMBER WITH CUSTOM AMOUNT</button>
-      </div>
-
-      <div class="field-label">CALENDAR COLORS:</div>
-      <div class="seg pills stack" id="set-calmode">
-        <button type="button" data-v="complete">GOALS FULLY COMPLETED</button>
-        <button type="button" data-v="average">AVERAGE PROGRESS TOWARD GOALS</button>
-      </div>
-      <p class="note">Fully completed: 3 of 4 goals met = 75%. Average progress: partly-done goals count too (2 of 3 workouts = 67%).</p>
 
       <h2 class="settings-section">CUSTOMIZABLE APP FEATURES</h2>
 
@@ -385,16 +362,41 @@
       </div>
       <p class="note">Off hides the to-do list button. Your to-dos are kept.</p>
 
+      <div class="field-label">APPEARANCE</div>
+      <div class="seg pills" id="set-theme">
+        <button type="button" data-v="light">LIGHT</button>
+        <button type="button" data-v="dark">DARK</button>
+        <button type="button" data-v="auto">AUTO</button>
+      </div>
+      <p class="note">Auto follows your iPhone’s light / dark setting.</p>
+
+      <div class="field-label">WEEK STARTS ON</div>
+      <div class="seg pills" id="set-weekstart">
+        <button type="button" data-v="0">SUNDAY</button>
+        <button type="button" data-v="1">MONDAY</button>
+      </div>
+
+      <div class="field-label">WHEN LOGGING CUSTOM DATES:</div>
+      <div class="seg pills stack" id="set-custommode">
+        <button type="button" data-v="add">ADD CUSTOM AMOUNT TO EXISTING NUMBER</button>
+        <button type="button" data-v="replace">REPLACE EXISTING NUMBER WITH CUSTOM AMOUNT</button>
+      </div>
+
+      <div class="field-label">CALENDAR COLORS:</div>
+      <div class="seg pills stack" id="set-calmode">
+        <button type="button" data-v="complete">GOALS FULLY COMPLETED</button>
+        <button type="button" data-v="average">AVERAGE PROGRESS TOWARD GOALS</button>
+      </div>
+      <p class="note">Fully completed: 3 of 4 goals met = 75%. Average progress: partly-done goals count too (2 of 3 workouts = 67%).</p>
+
+      <hr class="settings-divider">
+
       <div class="field-label">BACKUP</div>
       <button class="row-btn" id="btn-export">Export data (JSON)</button>
       <label class="row-btn" for="import-file">Import data (JSON)</label>
       <input type="file" id="import-file" accept="application/json,.json" hidden>
       <button class="row-btn hidden" id="btn-damaged">Download damaged data copy</button>
       <p class="note" id="backup-status"></p>
-
-      <div class="field-label">NOTIFICATIONS</div>
-      <button class="row-btn" id="btn-notify">Turn on reminder banners</button>
-      <p class="note" id="notify-status"></p>
 
       <button type="button" class="field-label fold-head" id="trash-toggle" aria-expanded="false" aria-controls="trash-body">
         RECENTLY DELETED <span class="group-count" id="trash-count"></span><span class="fold-chev" aria-hidden="true">›</span>
@@ -420,7 +422,7 @@
   <!-- APP LOCKS (App Store app only; locks.js) -->
   <section id="screen-locks" class="screen modal">
     <div class="modal-head">
-      <h1>APP LOCKS</h1>
+      <h1 class="long-title">APP LOCKS · SCREEN TIME</h1>
       <button class="close-btn" data-close aria-label="Close">&times;</button>
     </div>
     <div class="form-scroll">

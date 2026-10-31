@@ -1837,3 +1837,7 @@ body[data-cards="l"] .tally-list:not(.list) .card { aspect-ratio: 16 / 10; }
 .card-foot.is-screen { justify-content: center; min-height: 30px; }
 .card-foot.is-screen .card-bottom { flex: none; }
 #screen-options .link-row { margin-bottom: 4px; }
+
+/* Settings: the line that closes Customizable App Features; the App Locks · Screen Time title */
+.settings-divider { border: 0; border-top: 1px solid var(--line); margin: 40px 0 0; }
+.modal-head h1.long-title { font-size: 26px; line-height: 1.15; padding-right: 12px; }
