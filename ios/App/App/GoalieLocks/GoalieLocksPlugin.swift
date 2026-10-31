@@ -139,7 +139,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
                     // Not listening; the next call tries again.
                 }
             }
-            if goal.lock && goal.limit > 0 && ScreenStorage.minutesToday(goal.key) >= goal.limit {
+            if goal.lock && goal.limit > 0 && goal.appliesOn(Date()) && ScreenStorage.minutesToday(goal.key) >= goal.limit {
                 ScreenStorage.lockApps(goal.key)
             } else {
                 ScreenStorage.unlockApps(goal.key)

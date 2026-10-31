@@ -1868,3 +1868,13 @@ html[data-theme="dark"] .locks-heading { color: #aeb7c7; }
 button.account-who { width: 100%; text-align: left; position: relative; padding-right: 40px; cursor: pointer; color: var(--navy); }
 .account-who .account-chev { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 24px; line-height: 1; color: var(--muted); transition: transform .2s; }
 .account-who.open .account-chev { transform: translateY(-50%) rotate(90deg); }
+
+/* Messages (toasts) never run off the screen: long ones wrap onto more lines */
+.toast { white-space: normal; width: max-content; max-width: calc(100vw - 32px); border-radius: 18px; text-align: left; line-height: 1.35; }
+.toast span { min-width: 0; }
+
+/* Sheets (the screen-time limit sheet especially): the picked option is a clearly lighter gray, so
+   it stands out from the sheet behind it */
+.sheet .seg.pills button.on, .sheet .days button.on { background: #cdd3dc; border-color: #cdd3dc; }
+html[data-theme="dark"] .sheet .seg.pills button.on, html[data-theme="dark"] .sheet .days button.on { background: #4a5670; border-color: #4a5670; color: #fff; }
+.limit-days { margin-bottom: 4px; }

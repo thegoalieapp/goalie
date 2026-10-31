@@ -12,7 +12,10 @@ class GoalieMonitor: DeviceActivityMonitor {
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
         if let key = ScreenStorage.key(ofWindow: activity) {
-            ScreenStorage.lockWindow(key)
+            // Locked hours start: lock, if today is one of the limit's days.
+            if ScreenStorage.goals().first(where: { $0.key == key })?.appliesOn(Date()) ?? true {
+                ScreenStorage.lockWindow(key)
+            }
         } else if let key = ScreenStorage.key(of: activity) {
             ScreenStorage.unlockApps(key) // a new day: back under the limit
         } else {
@@ -31,7 +34,7 @@ class GoalieMonitor: DeviceActivityMonitor {
         super.eventDidReachThreshold(event, activity: activity)
         guard let key = ScreenStorage.key(of: activity), let minutes = Int(event.rawValue.dropFirst()) else { return }
         ScreenStorage.record(key, minutes: minutes)
-        if let goal = ScreenStorage.goals().first(where: { $0.key == key }), goal.lock, goal.limit > 0, minutes >= goal.limit {
+        if let goal = ScreenStorage.goals().first(where: { $0.key == key }), goal.lock, goal.limit > 0, minutes >= goal.limit, goal.appliesOn(Date()) {
             ScreenStorage.lockApps(key)
         }
     }

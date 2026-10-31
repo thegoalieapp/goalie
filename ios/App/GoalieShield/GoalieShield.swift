@@ -1,4 +1,5 @@
-// App locks: the lock screen shown over a locked app. It follows the phone's appearance like Goalie:
+// App locks: the lock screen shown over a locked app, on Apple's frosted background (a solid one left
+// filled-in corners on the app's card in the app switcher). It follows the phone's appearance like Goalie:
 // navy text, buttons and logo on a light background in light mode; white on dark in dark mode. It
 // names the lock and lists the goals still left, with progress ("Workout · 15/45 minutes").
 
@@ -46,12 +47,12 @@ class GoalieShield: ShieldConfigurationDataSource {
     private func windowScreen(for goal: ScreenGoal) -> ShieldConfiguration {
         let dark = UITraitCollection.current.userInterfaceStyle == .dark
         return ShieldConfiguration(
-            backgroundBlurStyle: nil,
-            backgroundColor: .systemBackground,
+            backgroundBlurStyle: .systemThickMaterial,
+            backgroundColor: nil,
             icon: UIImage(named: dark ? "ShieldIcon" : "ShieldIconNavy"),
             title: ShieldConfiguration.Label(text: "\(goal.name) is locked until \(clock(goal.to))", color: Self.ink),
             subtitle: ShieldConfiguration.Label(
-                text: "Locked hours: \(clock(goal.from)) to \(clock(goal.to)), every day.",
+                text: "Locked hours: \(clock(goal.from)) to \(clock(goal.to)).",
                 color: Self.ink.withAlphaComponent(0.85)),
             primaryButtonLabel: ShieldConfiguration.Label(text: "OK", color: Self.paper),
             primaryButtonBackgroundColor: Self.ink)
@@ -60,8 +61,8 @@ class GoalieShield: ShieldConfigurationDataSource {
     private func limitScreen(for goal: ScreenGoal) -> ShieldConfiguration {
         let dark = UITraitCollection.current.userInterfaceStyle == .dark
         return ShieldConfiguration(
-            backgroundBlurStyle: nil,
-            backgroundColor: .systemBackground,
+            backgroundBlurStyle: .systemThickMaterial,
+            backgroundColor: nil,
             icon: UIImage(named: dark ? "ShieldIcon" : "ShieldIconNavy"),
             title: ShieldConfiguration.Label(text: "\(goal.name): limit reached", color: Self.ink),
             subtitle: ShieldConfiguration.Label(
@@ -99,8 +100,8 @@ class GoalieShield: ShieldConfigurationDataSource {
                     .joined(separator: "\n")
 
         return ShieldConfiguration(
-            backgroundBlurStyle: nil,
-            backgroundColor: .systemBackground,
+            backgroundBlurStyle: .systemThickMaterial,
+            backgroundColor: nil,
             icon: UIImage(named: dark ? "ShieldIcon" : "ShieldIconNavy"),
             title: ShieldConfiguration.Label(text: title, color: Self.ink),
             subtitle: ShieldConfiguration.Label(text: subtitle, color: Self.ink.withAlphaComponent(0.85)),

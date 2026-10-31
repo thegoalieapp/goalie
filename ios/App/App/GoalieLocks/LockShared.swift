@@ -147,8 +147,15 @@ struct ScreenGoal: Codable {
     var name: String     // the goal's name, for the lock screen
     var limit: Int       // the goal's target in minutes (0: no target)
     var lock: Bool       // lock the apps once the limit is reached
-    var from: String?    // locked hours, every day: "22:00" to "07:00" (none: no locked hours)
+    var from: String?    // locked hours: "22:00" to "07:00" (none: no locked hours)
     var to: String?
+    var days: [Int]?     // the days it applies: 0 = Sunday … 6 = Saturday (none: every day)
+
+    /// Whether the limit applies on the day of this date.
+    func appliesOn(_ date: Date) -> Bool {
+        guard let days, !days.isEmpty else { return true }
+        return days.contains(Calendar.current.component(.weekday, from: date) - 1)
+    }
 
     /// Minutes after midnight for "22:00".
     private static func minutes(_ hhmm: String?) -> Int? {
@@ -159,12 +166,16 @@ struct ScreenGoal: Codable {
         guard let start = Self.minutes(from), let end = Self.minutes(to), start != end else { return nil }
         return (start, end)
     }
-    /// Inside the locked hours right now (handles hours that run past midnight, like 10 PM to 7 AM).
+    /// Inside the locked hours right now, on one of its days. Hours that run past midnight (10 PM to
+    /// 7 AM) belong to the day they start: Friday's run ends Saturday morning.
     func inWindow(_ date: Date = Date()) -> Bool {
         guard let window else { return false }
         let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
         let now = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
-        return window.start < window.end ? (now >= window.start && now < window.end) : (now >= window.start || now < window.end)
+        if window.start < window.end { return now >= window.start && now < window.end && appliesOn(date) }
+        if now >= window.start { return appliesOn(date) }
+        if now < window.end { return appliesOn(date.addingTimeInterval(-86_400)) }
+        return false
     }
 }
 
@@ -273,7 +284,7 @@ enum ScreenStorage {
     /// The goal's limit-lock that covers an app, for the lock screen.
     static func limitGoal(covering app: ApplicationToken?, category: ActivityCategoryToken?, web: WebDomainToken?) -> ScreenGoal? {
         goals().first { goal in
-            guard goal.lock, goal.limit > 0, minutesToday(goal.key) >= goal.limit, let picked = selection(goal.key) else { return false }
+            guard goal.lock, goal.limit > 0, goal.appliesOn(Date()), minutesToday(goal.key) >= goal.limit, let picked = selection(goal.key) else { return false }
             if let app, picked.applicationTokens.contains(app) { return true }
             if let web, picked.webDomainTokens.contains(web) { return true }
             if let category, picked.categoryTokens.contains(category) { return true }
