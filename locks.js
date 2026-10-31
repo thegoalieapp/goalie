@@ -114,6 +114,7 @@ async function renderLocks() {
     return;
   }
   const locks = readLocks();
+  box.append(el('h2', { class: 'locks-heading' }, 'LOCKED UNTIL GOALS ARE DONE'));
   if (!locks.length) box.append(el('p', { class: 'note locks-empty' }, 'No locks yet. Make one to keep distracting apps closed until your goals are done.'));
   for (const lock of locks) {
     const locked = isLocked(lock), goals = lockGoals(lock);
@@ -131,6 +132,7 @@ async function renderLocks() {
       el('div', { class: 'lock-foot' }, locked ? `${goals.filter(t => !goalDoneForLock(t)).length} left to unlock` : relockText(lock))));
   }
   box.append(el('button', { type: 'button', class: 'submit-btn', onclick: () => lockSheet(null) }, '+ NEW LOCK'));
+  renderLimits(box);
 }
 
 async function allowScreenTime() {
@@ -223,63 +225,112 @@ if (isNativeApp && locksPlugin()) {
   setInterval(() => syncLocks(), 60000); // a new day (or week…) can start while Goalie is open
 }
 
+
 /* =========================================================
-   Screen-time goals (App Store app only)
+   Screen-time limits (App Store app only)
    =========================================================
-   A minutes-per-day goal can fill itself in from Screen Time: pick the apps, and Goalie logs their
-   use today in 5-minute steps (Apple only says when the apps reach each step, never exact numbers).
-   A limit goal ("Instagram: under 30 min a day") can also lock its apps once the limit is reached,
-   until midnight. Usage recorded while Goalie was closed is filled in the next time it opens.
+   Settings → App Locks · Screen Time → + New limit: pick apps and a daily limit ("Instagram, 30
+   minutes a day"). Each limit is also a goal on the home screen ("Instagram ↓ 30 min") that fills
+   itself in from Screen Time in 5-minute steps (Apple only says when the apps reach each step, never
+   exact numbers), even while Goalie is closed. Reaching the limit locks the apps until midnight.
+   No early unlocks: while a limit has its apps locked, the limit can only go down, apps can only be
+   added, and it can't be deleted until midnight.
 
-   Goal fields: screen (on/off), screenKey (where its apps are saved on the phone), screenApps (how
-   many apps / categories / websites), screenLock (lock at the limit). */
+   Goal fields: screen (true), screenKey (where its apps are saved on the phone), screenApps (how many
+   apps / categories / websites), screenLock (true: lock at the limit). The minutes stay on the phone
+   (account.js keeps them out of the cloud). */
 
-const screenEligible = f => f.unit === 'minutes' && f.reset === 'day' && !byDate(f);
 const canLockAtLimit = f => f.direction === 'decrease' && f.target > 0;
+const screenLimits = () => state.tallies.filter(t => t.screen && t.screenKey);
+const limitReached = t => t.target > 0 && countThisPeriod(t) >= t.target;
 
-// The goal form's Screen Time section (shown for minutes-per-day goals).
+// Editing a limit's goal card in the goal form: its unit, period and limit are set in App Locks.
 function syncScreenForm() {
-  const show = screenEligible(form);
-  if (!show) form.screen = false;
-  $('#screen-section').classList.toggle('hidden', !show);
-  $$('#screen-mode button').forEach(b => b.classList.toggle('on', b.dataset.v === (form.screen ? 'on' : 'off')));
-  $('#screen-options').classList.toggle('hidden', !form.screen);
-  $('#screen-apps-value').textContent = form.screenApps ? appsText(form.screenApps).toUpperCase() : 'CHOOSE APPS';
-  $('#screen-lock-row').classList.toggle('hidden', !canLockAtLimit(form));
-  $$('#screen-lock button').forEach(b => b.classList.toggle('on', b.dataset.v === (form.screenLock ? 'on' : 'off')));
-  $('#screen-note').textContent = form.screen
-    ? 'Goalie fills this in by itself, in 5-minute steps, even while it’s closed. Apple never shows Goalie which apps you pick or exactly how long you use them.'
-    : 'Track time in apps like Instagram without logging it yourself.';
+  const fixed = !!form.screen;
+  ['[data-field="unit"]', '#per-row', '[data-field="direction"]'].forEach(sel => $(sel)?.classList.toggle('fixed', fixed));
+  $('#f-goal').readOnly = fixed;
+  let note = $('#screen-form-note');
+  if (!note) { note = el('p', { class: 'note', id: 'screen-form-note' }, 'This is a screen-time limit: change its apps and limit in Settings → App Locks · Screen Time.'); $('#goal-desc').after(note); }
+  note.classList.toggle('hidden', !fixed);
 }
 
-function screenFormSetup() {
-  $('#screen-mode').addEventListener('click', async e => {
-    const b = e.target.closest('button'); if (!b) return;
-    form.screen = b.dataset.v === 'on';
-    if (form.screen) {
-      // Screen Time permission first (the same one app locks use).
-      try {
-        let { status } = await locksPlugin().authorization();
-        if (status !== 'approved') ({ status } = await locksPlugin().requestAuthorization());
-        if (status !== 'approved') { form.screen = false; toast('Goalie needs Screen Time access for this'); }
-      } catch (err) { form.screen = false; }
-      if (form.screen && form.target == null && form.direction === 'decrease') { form.target = 30; $('#f-goal').value = 30; }
-    }
-    syncForm();
-  });
-  $('#btn-screen-apps').addEventListener('click', async () => {
-    form.screenKey ||= uid();
+// The limits on the App Locks · Screen Time screen.
+function renderLimits(box) {
+  box.append(el('h2', { class: 'locks-heading' }, 'SCREEN TIME LIMITS'));
+  const limits = screenLimits();
+  if (!limits.length) box.append(el('p', { class: 'note locks-empty' }, 'Set a daily limit for apps like Instagram. Goalie tracks it for you and locks the apps until midnight once you reach it.'));
+  for (const t of limits) {
+    const used = countThisPeriod(t), over = limitReached(t);
+    box.append(el('button', { type: 'button', class: `lock-card${over ? ' locked' : ''}`, onclick: () => limitSheet(t) },
+      el('div', { class: 'lock-card-top' },
+        el('strong', {}, t.name),
+        el('span', { class: 'lock-state' }, over ? 'LOCKED' : 'OPEN')),
+      el('div', { class: 'lock-apps' }, appsText(t.screenApps)),
+      el('div', { class: 'limit-bar', role: 'img', 'aria-label': `${Math.round(used)} of ${t.target} minutes used today` },
+        el('span', { style: `width:${Math.min(100, (used / t.target) * 100)}%` })),
+      el('div', { class: 'lock-foot' }, over
+        ? `${num(t, used)} of ${num(t, t.target)} today · locked until midnight`
+        : `${num(t, used)} of ${num(t, t.target)} today · ${num(t, t.target - used)} left`)));
+  }
+  box.append(el('button', { type: 'button', class: 'submit-btn secondary', onclick: () => limitSheet(null) }, '+ NEW LIMIT'));
+}
+
+// New limit (null) or change one.
+function limitSheet(existing) {
+  const over = existing ? limitReached(existing) : false;
+  const key = existing?.screenKey || uid();
+  let apps = existing?.screenApps || null;
+  const nameInput = el('input', { class: 'text-input full', type: 'text', maxlength: '30', placeholder: 'e.g. Instagram', value: existing?.name || '' });
+  const limitInput = el('input', { class: 'text-input goal-input', type: 'number', inputmode: 'numeric', min: '5', step: '5', value: String(existing?.target || 30) });
+  const appsLine = el('div', { class: 'lock-apps' }, appsText(apps));
+  const chooseApps = async () => {
     try {
-      const r = await locksPlugin().pickApps({ id: `screen-${form.screenKey}`, locked: false });
-      if (!r.cancelled) form.screenApps = (r.apps || r.categories || r.sites) ? { apps: r.apps, categories: r.categories, sites: r.sites } : null;
-    } catch (err) { toast('Couldn’t open the app picker'); }
-    syncForm();
-  });
-  $('#screen-lock').addEventListener('click', e => {
-    const b = e.target.closest('button'); if (!b) return;
-    form.screenLock = b.dataset.v === 'on';
-    syncForm();
-  });
+      const r = await locksPlugin().pickApps({ id: `screen-${key}`, locked: over });
+      if (!r.cancelled) { apps = (r.apps || r.categories || r.sites) ? { apps: r.apps, categories: r.categories, sites: r.sites } : null; appsLine.textContent = appsText(apps); }
+    } catch (e) { toast('Couldn’t open the app picker'); }
+  };
+  const saveLimit = () => {
+    const name = nameInput.value.trim(), limit = Math.round(+limitInput.value);
+    if (!name) { toast('Give the limit a name'); return; }
+    if (!(limit >= 1)) { toast('Set a daily limit in minutes'); return; }
+    if (!apps) { toast('Choose at least one app'); return; }
+    if (over && limit > existing.target) { toast('Limit reached today: it can be lowered, not raised, until midnight'); return; }
+    if (existing) {
+      Object.assign(existing, { name, target: limit, screenApps: apps });
+    } else {
+      state.tallies.push({
+        ...blankForm(), name, unit: 'minutes', reset: 'day', direction: 'decrease', target: limit,
+        color: '#ff7a93', screen: true, screenKey: key, screenApps: apps, screenLock: true,
+        days: [0, 1, 2, 3, 4, 5, 6], id: uid(), createdAt: Date.now(),
+      });
+    }
+    save(); closeSheet(); renderLocks(); renderToday();
+    toast(existing ? `${name} saved` : `${name} limit is on: ${limit} minutes a day`);
+  };
+  const deleteLimit = () => {
+    if (over) { toast('A limit can be deleted after midnight, once its apps unlock'); return; }
+    openSheet(
+      el('h3', {}, `Delete ${existing.name}?`),
+      el('p', {}, 'Its apps stop being tracked and limited, and its goal card moves to Recently Deleted.'),
+      el('button', { class: 'sheet-btn danger', onclick: () => { closeSheet(); deleteTally(existing); renderLocks(); } }, 'Delete limit'),
+      el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Cancel'),
+    );
+  };
+  openSheet(
+    el('h3', {}, existing ? existing.name : 'New screen-time limit'),
+    over ? el('p', { class: 'note' }, 'Today’s limit is reached, so these apps are locked until midnight. Until then the limit can only go down and apps can only be added.') : null,
+    el('div', { class: 'sheet-label' }, 'NAME'),
+    nameInput,
+    el('div', { class: 'sheet-label' }, 'APPS'),
+    appsLine,
+    el('button', { type: 'button', class: 'sheet-btn', onclick: chooseApps }, apps ? (over ? 'Add apps' : 'Change apps') : 'Choose apps'),
+    el('div', { class: 'sheet-label' }, 'DAILY LIMIT'),
+    el('div', { class: 'goal-row' }, limitInput, el('span', { class: 'goal-per' }, 'MINUTES A DAY')),
+    el('p', { class: 'note' }, 'Goalie tracks it in 5-minute steps, even while it’s closed, and locks the apps until midnight once you reach it. It also shows as a goal on your home screen.'),
+    el('button', { class: 'sheet-btn primary', onclick: saveLimit }, existing ? 'Save' : 'Turn on limit'),
+    existing ? el('button', { class: `sheet-btn danger${over ? ' disabled' : ''}`, onclick: deleteLimit }, 'Delete limit') : null,
+    el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Cancel'),
+  );
 }
 
 // Usage recorded on the phone → entries. Each day's highest step becomes that day's total (only
@@ -298,14 +349,17 @@ function applyScreenUsage(usage) {
       }
     }
   }
-  if (added) { save(); renderToday(); }
+  if (added) {
+    save(); renderToday();
+    if ($('#screen-locks').classList.contains('active')) renderLocks();
+  }
 }
 
 let screenTimer = null;
 function syncScreenGoals({ now = false } = {}) {
   clearTimeout(screenTimer);
   screenTimer = setTimeout(async () => {
-    const goals = state.tallies.filter(t => t.screen && t.screenKey && t.screenApps).map(t => ({
+    const goals = screenLimits().filter(t => t.screenApps).map(t => ({
       key: t.screenKey, name: t.name, limit: t.target > 0 ? Math.round(t.target) : 0, lock: !!t.screenLock && canLockAtLimit(t),
     }));
     try {
@@ -316,8 +370,6 @@ function syncScreenGoals({ now = false } = {}) {
 }
 
 if (isNativeApp && locksPlugin()) {
-  $('#screen-section').dataset.ready = '1';
-  screenFormSetup();
   window.goalieScreen = { syncForm: syncScreenForm };
   const previous = window.goalieLocks;
   window.goalieLocks = () => { previous?.(); syncScreenGoals(); }; // save() calls this

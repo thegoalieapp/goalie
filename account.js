@@ -74,8 +74,9 @@ function cloudView(s) {
   for (const k of DEVICE_SETTINGS) delete settings[k];
   // Minutes filled in from Screen Time (auto) stay on this phone: Screen Time data never leaves it.
   const entries = s.entries.filter(e => !e.auto).sort((a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const trash = s.trash.map(item => (item.entries ? { ...item, entries: item.entries.filter(e => !e.auto) } : item));
   return JSON.parse(JSON.stringify({
-    tallies: s.tallies, entries, trash: s.trash, todos: s.todos,
+    tallies: s.tallies, entries, trash, todos: s.todos,
     todoSections: s.todoSections, todoTrash: s.todoTrash, settings,
   }));
 }

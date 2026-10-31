@@ -1841,3 +1841,12 @@ body[data-cards="l"] .tally-list:not(.list) .card { aspect-ratio: 16 / 10; }
 /* Settings: the line that closes Customizable App Features; the App Locks · Screen Time title */
 .settings-divider { border: 0; border-top: 1px solid var(--line); margin: 40px 0 0; }
 .modal-head h1.long-title { font-size: 26px; line-height: 1.15; padding-right: 12px; }
+
+/* App Locks · Screen Time: the two kinds of lock, and each limit's use today */
+.locks-heading { margin: 14px 0 0; font-size: 13px; font-weight: 800; letter-spacing: .1em; color: var(--muted); }
+.locks-heading:first-child { margin-top: 2px; }
+.limit-bar { height: 8px; border-radius: 999px; background: rgba(28, 42, 74, .12); overflow: hidden; margin-top: 2px; }
+.lock-card.locked .limit-bar { background: rgba(255, 255, 255, .2); }
+.limit-bar span { display: block; height: 100%; border-radius: inherit; background: currentColor; }
+/* Goal form: a screen-time limit's unit, period and direction are set in App Locks */
+.fixed { pointer-events: none; opacity: .5; }
