@@ -147,6 +147,25 @@ struct ScreenGoal: Codable {
     var name: String     // the goal's name, for the lock screen
     var limit: Int       // the goal's target in minutes (0: no target)
     var lock: Bool       // lock the apps once the limit is reached
+    var from: String?    // locked hours, every day: "22:00" to "07:00" (none: no locked hours)
+    var to: String?
+
+    /// Minutes after midnight for "22:00".
+    private static func minutes(_ hhmm: String?) -> Int? {
+        guard let parts = hhmm?.split(separator: ":").compactMap({ Int($0) }), parts.count == 2 else { return nil }
+        return parts[0] * 60 + parts[1]
+    }
+    var window: (start: Int, end: Int)? {
+        guard let start = Self.minutes(from), let end = Self.minutes(to), start != end else { return nil }
+        return (start, end)
+    }
+    /// Inside the locked hours right now (handles hours that run past midnight, like 10 PM to 7 AM).
+    func inWindow(_ date: Date = Date()) -> Bool {
+        guard let window else { return false }
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let now = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        return window.start < window.end ? (now >= window.start && now < window.end) : (now >= window.start || now < window.end)
+    }
 }
 
 /// The highest step reached on one day, and when.
@@ -220,6 +239,36 @@ enum ScreenStorage {
     }
 
     static func unlockApps(_ key: String) { store(key).clearAllSettings() }
+
+    /* Locked hours: their own activity and their own lock, so the daily-minutes lock and the
+       locked hours never undo each other. */
+    static func windowActivity(_ key: String) -> DeviceActivityName { DeviceActivityName("goalie.window.\(key)") }
+    static func key(ofWindow activity: DeviceActivityName) -> String? {
+        let prefix = "goalie.window."
+        return activity.rawValue.hasPrefix(prefix) ? String(activity.rawValue.dropFirst(prefix.count)) : nil
+    }
+    private static func windowStore(_ key: String) -> ManagedSettingsStore {
+        ManagedSettingsStore(named: ManagedSettingsStore.Name("window-\(key)"))
+    }
+    static func lockWindow(_ key: String) {
+        guard let picked = selection(key) else { return }
+        let store = windowStore(key)
+        store.shield.applications = picked.applicationTokens.isEmpty ? nil : picked.applicationTokens
+        store.shield.applicationCategories = picked.categoryTokens.isEmpty ? nil : .specific(picked.categoryTokens)
+        store.shield.webDomains = picked.webDomainTokens.isEmpty ? nil : picked.webDomainTokens
+    }
+    static func unlockWindow(_ key: String) { windowStore(key).clearAllSettings() }
+
+    /// The limit whose locked hours cover an app right now, for the lock screen.
+    static func windowGoal(covering app: ApplicationToken?, category: ActivityCategoryToken?, web: WebDomainToken?) -> ScreenGoal? {
+        goals().first { goal in
+            guard goal.inWindow(), let picked = selection(goal.key) else { return false }
+            if let app, picked.applicationTokens.contains(app) { return true }
+            if let web, picked.webDomainTokens.contains(web) { return true }
+            if let category, picked.categoryTokens.contains(category) { return true }
+            return false
+        }
+    }
 
     /// The goal's limit-lock that covers an app, for the lock screen.
     static func limitGoal(covering app: ApplicationToken?, category: ActivityCategoryToken?, web: WebDomainToken?) -> ScreenGoal? {

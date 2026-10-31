@@ -110,9 +110,11 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         let center = DeviceActivityCenter()
         let keys = Set(goals.map(\.key))
         for gone in ScreenStorage.goals() where !keys.contains(gone.key) {
-            center.stopMonitoring([ScreenStorage.activity(gone.key)])
+            center.stopMonitoring([ScreenStorage.activity(gone.key), ScreenStorage.windowActivity(gone.key)])
             ScreenStorage.unlockApps(gone.key)
+            ScreenStorage.unlockWindow(gone.key)
             LockShared.defaults.removeObject(forKey: "screenSig-\(gone.key)")
+            LockShared.defaults.removeObject(forKey: "windowSig-\(gone.key)")
         }
         ScreenStorage.saveGoals(goals)
         for goal in goals {
@@ -142,12 +144,40 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             } else {
                 ScreenStorage.unlockApps(goal.key)
             }
+            Self.scheduleWindow(goal, picked: picked, center: center)
         }
         var usage: [String: Any] = [:]
         for (key, days) in ScreenStorage.usage() {
             usage[key] = days.mapValues { ["minutes": $0.minutes, "at": $0.at] }
         }
         call.resolve(["usage": usage])
+    }
+
+    /// Locked hours: iPhone wakes the re-locker when they start and end, every day (even when they
+    /// run past midnight); and right now the apps are locked or not, whichever the clock says.
+    private static func scheduleWindow(_ goal: ScreenGoal, picked: FamilyActivitySelection, center: DeviceActivityCenter) {
+        let activity = ScreenStorage.windowActivity(goal.key)
+        let sigKey = "windowSig-\(goal.key)"
+        guard let window = goal.window else {
+            center.stopMonitoring([activity])
+            ScreenStorage.unlockWindow(goal.key)
+            LockShared.defaults.removeObject(forKey: sigKey)
+            return
+        }
+        let sig = "\(window.start)-\(window.end)"
+        if LockShared.defaults.string(forKey: sigKey) != sig || !center.activities.contains(activity) {
+            center.stopMonitoring([activity])
+            do {
+                try center.startMonitoring(activity, during: DeviceActivitySchedule(
+                    intervalStart: DateComponents(hour: window.start / 60, minute: window.start % 60),
+                    intervalEnd: DateComponents(hour: window.end / 60, minute: window.end % 60),
+                    repeats: true))
+                LockShared.defaults.set(sig, forKey: sigKey)
+            } catch {
+                // Not scheduled; the next call tries again. The lock below still follows the clock.
+            }
+        }
+        if goal.inWindow() { ScreenStorage.lockWindow(goal.key) } else { ScreenStorage.unlockWindow(goal.key) }
     }
 
     /// "These apps reached this many minutes today", counting use from before Goalie started

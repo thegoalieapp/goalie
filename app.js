@@ -2127,7 +2127,9 @@ $('#btn-reminder').addEventListener('click', () => {
   const input = el('input', { class: 'text-input', type: 'time', value: form.reminder || '09:00' });
   openSheet(
     el('h3', {}, 'Daily reminder'),
-    el('p', {}, 'You’ll get a banner at this time. iPhone only lets web apps send it while Goalie is open or was used recently. For a guaranteed alert, also set an iPhone Reminder.'),
+    el('p', {}, isNativeApp
+      ? 'You’ll get a notification at this time on the goal’s days, even when Goalie is closed.'
+      : 'You’ll get a banner at this time. iPhone only lets web apps send it while Goalie is open or was used recently. For a guaranteed alert, also set an iPhone Reminder.'),
     input,
     el('button', {
       class: 'sheet-btn primary',

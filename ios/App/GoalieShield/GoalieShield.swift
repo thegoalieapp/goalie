@@ -25,10 +25,36 @@ class GoalieShield: ShieldConfigurationDataSource {
 
     /// A screen-time limit reached comes first (it's the reason for this lock); otherwise the goals lock.
     private func screen(app: ApplicationToken?, category: ActivityCategoryToken?, web: WebDomainToken?) -> ShieldConfiguration {
+        if let goal = ScreenStorage.windowGoal(covering: app, category: category, web: web) {
+            return windowScreen(for: goal)
+        }
         if let goal = ScreenStorage.limitGoal(covering: app, category: category, web: web) {
             return limitScreen(for: goal)
         }
         return screen(for: LockStorage.lock(covering: app, category: category, web: web))
+    }
+
+    /// "10:00 PM" for "22:00".
+    private func clock(_ hhmm: String?) -> String {
+        let parts = (hhmm ?? "").split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2, let date = Calendar.current.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: Date()) else { return hhmm ?? "" }
+        let format = DateFormatter()
+        format.timeStyle = .short
+        return format.string(from: date)
+    }
+
+    private func windowScreen(for goal: ScreenGoal) -> ShieldConfiguration {
+        let dark = UITraitCollection.current.userInterfaceStyle == .dark
+        return ShieldConfiguration(
+            backgroundBlurStyle: nil,
+            backgroundColor: .systemBackground,
+            icon: UIImage(named: dark ? "ShieldIcon" : "ShieldIconNavy"),
+            title: ShieldConfiguration.Label(text: "\(goal.name) is locked until \(clock(goal.to))", color: Self.ink),
+            subtitle: ShieldConfiguration.Label(
+                text: "Locked hours: \(clock(goal.from)) to \(clock(goal.to)), every day.",
+                color: Self.ink.withAlphaComponent(0.85)),
+            primaryButtonLabel: ShieldConfiguration.Label(text: "OK", color: Self.paper),
+            primaryButtonBackgroundColor: Self.ink)
     }
 
     private func limitScreen(for goal: ScreenGoal) -> ShieldConfiguration {
