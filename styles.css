@@ -1856,3 +1856,15 @@ body[data-cards="l"] .tally-list:not(.list) .card { aspect-ratio: 16 / 10; }
 .group-block.lifted .group-title { opacity: .6; }
 .group-block.drag-placeholder { opacity: .3; }
 .drag-ghost.group-block { background: var(--bg); border-radius: 18px; box-shadow: 0 14px 34px rgba(20, 30, 60, .25); padding: 8px 10px; }
+
+/* App locks in dark mode: "navy" turns into the light text color there, so a locked card gets its own
+   deep blue instead of a pale card with white text; the pill and bar get light tints. */
+html[data-theme="dark"] .lock-card.locked { background: #2d4b80; color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
+html[data-theme="dark"] .lock-state { background: rgba(255, 255, 255, .12); }
+html[data-theme="dark"] .limit-bar { background: rgba(255, 255, 255, .14); }
+html[data-theme="dark"] .locks-heading { color: #aeb7c7; }
+
+/* Settings → Account: tap the account to show Sign out and Delete account */
+button.account-who { width: 100%; text-align: left; position: relative; padding-right: 40px; cursor: pointer; color: var(--navy); }
+.account-who .account-chev { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 24px; line-height: 1; color: var(--muted); transition: transform .2s; }
+.account-who.open .account-chev { transform: translateY(-50%) rotate(90deg); }

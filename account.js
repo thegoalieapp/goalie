@@ -444,14 +444,19 @@ function refreshAccountUI() {
       el('p', { class: 'note' }, 'Sign in to back up your goals and keep them in sync on all your devices. Signing in is optional.'),
     );
   } else {
+    // Tapping the account shows Sign out and Delete account; tapping again hides them.
     box.append(
-      el('div', { class: 'account-who' },
-        // "Hide My Email" gives a random @privaterelay.appleid.com address; show that plainly instead.
-        el('strong', {}, /@privaterelay\.appleid\.com$/i.test(acct.email) ? 'Apple ID · email hidden' : (acct.email || 'Signed in')),
-        el('span', {}, acct.provider === 'apple' ? 'Signed in with Apple' : 'Signed in with Google')),
+      el('button', {
+        type: 'button', class: `account-who${accountOpen ? ' open' : ''}`, 'aria-expanded': String(accountOpen),
+        onclick: () => { accountOpen = !accountOpen; refreshAccountUI(); },
+      },
+      // "Hide My Email" gives a random @privaterelay.appleid.com address; show that plainly instead.
+      el('strong', {}, /@privaterelay\.appleid\.com$/i.test(acct.email) ? 'Apple ID · email hidden' : (acct.email || 'Signed in')),
+      el('span', {}, acct.provider === 'apple' ? 'Signed in with Apple' : 'Signed in with Google'),
+      el('span', { class: 'account-chev', 'aria-hidden': 'true' }, '›')),
       el('p', { class: 'note' }, statusText()),
-      el('button', { type: 'button', class: 'row-btn', onclick: signOutHere }, 'Sign out'),
-      el('button', { type: 'button', class: 'row-btn danger', onclick: confirmDeleteAccount }, 'Delete account'),
+      accountOpen ? el('button', { type: 'button', class: 'row-btn', onclick: signOutHere }, 'Sign out') : null,
+      accountOpen ? el('button', { type: 'button', class: 'row-btn danger', onclick: confirmDeleteAccount }, 'Delete account') : null,
     );
   }
   const where = $('#storage-note');
@@ -459,6 +464,8 @@ function refreshAccountUI() {
     ? 'Your data is saved on this device and backed up to your account.'
     : `Data is stored only on this device. Deleting Goalie${isNative() ? '' : ' from your Home Screen'} erases it, so sign in or export a backup first.`;
 }
+
+let accountOpen = false; // Sign out and Delete account showing (the account was tapped)
 
 function confirmDeleteAccount() {
   openSheet(
