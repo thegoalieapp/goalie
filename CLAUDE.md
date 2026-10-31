@@ -18,7 +18,7 @@ Goalie is Tanner Witte's goal and habit tracker: a vanilla JS web app (`index.ht
 - The iOS plugin config turns **off** the Facebook SDK (privacy policy: no third-party tracking). Keep it off.
 
 ## Building the app
-The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.github/workflows/testflight.yml` builds on GitHub's macOS 15 runner (Xcode 26.3; macOS 26 runners were too busy) on every push to `app-store` and uploads to TestFlight with cloud-managed signing. The owner tests through the TestFlight app. `docs/MAC-SESSION.md` is the fallback if a Mac becomes available.
+The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.github/workflows/testflight.yml` builds on GitHub's macOS 15 runner (Xcode 26.3; macOS 26 runners were too busy) on every push to `app-store` and uploads to TestFlight. Signing is manual (Family Controls Distribution only goes into hand-made profiles): the Apple Distribution certificate is in the `DIST_P12`/`DIST_P12_PASSWORD` secrets (its key and files are in the owner's `DocumentsGoalie signing` folder, never in the repo), and the four portal profiles ("Goalie App Store", "Goalie Monitor App Store", "Goalie Shield App Store", "Goalie Shield Action App Store") are downloaded by name. Changing an App ID's capabilities makes its profiles Invalid: regenerate them in the portal. The owner tests through the TestFlight app. `docs/MAC-SESSION.md` is the fallback if a Mac becomes available.
 
 ## Next steps
 1. Get the first TestFlight build through (check the Actions log, especially the entitlements step: Sign in with Apple must be listed).

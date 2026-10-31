@@ -95,7 +95,7 @@ jobs:
           codesign --force --sign - --entitlements ios/App/App/App.entitlements --generate-entitlement-der "$APP"
           echo "== App"; codesign -d --entitlements - "$APP"
 
-      - name: Sign with Apple's cloud certificate and upload to TestFlight
+      - name: Sign with the distribution certificate and upload to TestFlight
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
