@@ -39,7 +39,7 @@ const isLocked = lock => lockGoals(lock).some(t => !goalDoneForLock(t));
 const lockPeriod = t => (t.reset === 'minute' || t.reset === 'hour' ? 'day' : t.reset);
 
 function progressText(t, n) {
-  if (isCheck(t)) return goalReached(t, n) ? 'Done' : 'Not yet';
+  if (isCheck(t)) return goalReached(t, n) ? '✓' : '✗';
   return `${num(t, n)}/${num(t, t.target)}${isMoney(t) ? '' : ` ${unitLabel(t)}`}`;
 }
 
