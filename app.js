@@ -1900,11 +1900,12 @@ $$('#create-form .seg').forEach(seg => seg.addEventListener('click', e => {
     case 'bottomMode': form.bottomMode = v; break;
     case 'direction': form.direction = v; break;
     case 'unit': {
-      // Minutes ↔ hours: keep the same amounts (30 minutes becomes 0.5 hours).
+      // Minutes ↔ hours: the goal keeps its amount (30 minutes becomes 0.5 hours); the amount per
+      // tap starts over at 1 (1 minute would become an odd 0.02 hours).
       const k = unitFactor(form.unit, v);
       if (k && k !== 1) {
         if (form.target != null) { form.target = +(form.target * k).toFixed(4); $('#f-goal').value = fmt(form.target); }
-        if (isFinite(form.defaultCount)) form.defaultCount = +(form.defaultCount * k).toFixed(4);
+        form.defaultCount = 1;
       }
       form.unit = v;
       if (v === 'check') {
