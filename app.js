@@ -439,6 +439,9 @@ $$('[data-close]').forEach(btn => btn.addEventListener('click', () => {
    Today screen
    ========================================================= */
 let editMode = false;
+// How long a card is held before it can be dragged. Group headings and group chips (edit mode) use
+// it too, so a quick swipe scrolls instead of dragging.
+const CARD_HOLD_MS = 250;
 
 // Snapshot taken when edit mode starts, so CANCEL can undo everything done since.
 let editSnapshot = null;
@@ -581,8 +584,12 @@ function drawToday(bumpId) {
   for (const [name, tallies] of groups) {
     const key = name || NO_GROUP;
     const isCollapsed = showHeadings && collapsed.has(key);
+    // Each group is one block (heading + cards), so in edit mode a whole group can be dragged up or
+    // down by its heading. (Goals with no group stay last.)
+    const block = el('div', { class: 'group-block', 'data-block': name || null });
+    list.append(block);
     if (showHeadings) {
-      list.append(el('div', { class: `group-title${isCollapsed ? ' collapsed' : ''}` },
+      const title = el('div', { class: `group-title${isCollapsed ? ' collapsed' : ''}` },
         editMode && name ? el('button', {
           type: 'button',
           class: 'group-delete',
@@ -597,13 +604,32 @@ function drawToday(bumpId) {
         },
         el('span', { class: 'group-name' }, name ? name.toUpperCase() : 'NO GROUP'),
         el('span', { class: 'group-count' }, String(tallies.length)),
-        el('span', { class: 'group-chev', 'aria-hidden': 'true' }, '›')),
-        name && !editMode && visionMode() !== 'one' ? visionButton(name) : null));
+        editMode ? null : el('span', { class: 'group-chev', 'aria-hidden': 'true' }, '›')),
+        editMode && name ? el('span', { class: 'todo-grip group-grip', 'aria-hidden': 'true' }, '≡') : null,
+        name && !editMode && visionMode() !== 'one' ? visionButton(name) : null);
+      block.append(title);
+      // Edit mode: hold a group's heading (as long as a card) and drag it up or down.
+      if (editMode && name) dragSort(block, {
+        handle: title,
+        holdMs: CARD_HOLD_MS,
+        scroller: $('#tally-list'),
+        itemSelector: '#tally-list .group-block[data-block]',
+        onDrop: commitGroupOrder,
+      });
     }
     const grid = el('div', { class: `grid${isCollapsed ? ' collapsed' : ''}`, 'data-group': name });
     tallies.forEach(t => grid.append(tallyCard(t, t.id === bumpId)));
-    list.append(grid);
+    block.append(grid);
   }
+}
+
+// A group was dragged to a new place: save the order of the groups (the chips follow it too).
+function commitGroupOrder() {
+  const shown = $$('#tally-list .group-block[data-block]').map(b => b.dataset.block);
+  const rest = allGroupNames().filter(g => !shown.includes(g));
+  state.settings.groupOrder = [...shown, ...rest];
+  save();
+  renderToday();
 }
 
 const NO_GROUP = '__none__';
@@ -703,16 +729,19 @@ function allGroupNames() {
 
 // Edit mode: drag a group chip left or right to reorder the groups (their cards move with them).
 let chipDragAt = 0;
-// The chip lifts as soon as it's pressed and slides under the finger; the others make room as it
-// passes. (Moves are followed on the window: moving the chip within the row makes iPhone Safari drop
-// a grip held on the chip itself.)
+// Held still as long as a card (0.25s), the chip lifts and slides under the finger; the others make
+// room as it passes. A quick swipe just scrolls the row, so every chip can be seen. (Moves are
+// followed on the window: moving the chip within the row makes iPhone Safari drop a grip held on the
+// chip itself.)
 function attachChipDrag(chip, box) {
   chip.addEventListener('pointerdown', e => {
     if (!editMode) return;
     const startX = e.clientX;
     const grab = startX - chip.getBoundingClientRect().left; // where on the chip the finger is
-    let moved = false;
-    chip.classList.add('dragging');
+    let moved = false, lifted = false;
+    const holdTimer = setTimeout(() => { lifted = true; chip.classList.add('dragging'); }, CARD_HOLD_MS);
+    // Once lifted, the row mustn't scroll under the finger.
+    const noScroll = ev => { if (lifted) ev.preventDefault(); };
     // Keep the chip under the finger, wherever its place in the row is now.
     const follow = x => {
       chip.style.transform = 'none';
@@ -722,6 +751,7 @@ function attachChipDrag(chip, box) {
     const move = ev => {
       if (ev.pointerId !== e.pointerId) return;
       if (!moved && Math.abs(ev.clientX - startX) < 6) return;
+      if (!lifted) { end(ev); return; } // moved before the hold: a swipe, so the row scrolls
       moved = true;
       ev.preventDefault();
       const target = [...box.querySelectorAll('.group-chip[data-group]')].find(c => {
@@ -740,9 +770,11 @@ function attachChipDrag(chip, box) {
     };
     const end = ev => {
       if (ev.pointerId !== e.pointerId) return;
+      clearTimeout(holdTimer);
       removeEventListener('pointermove', move);
       removeEventListener('pointerup', end);
       removeEventListener('pointercancel', end);
+      removeEventListener('touchmove', noScroll);
       chip.classList.remove('dragging');
       chip.style.transform = '';
       if (!moved) return;
@@ -754,6 +786,7 @@ function attachChipDrag(chip, box) {
     addEventListener('pointermove', move, { passive: false });
     addEventListener('pointerup', end);
     addEventListener('pointercancel', end);
+    addEventListener('touchmove', noScroll, { passive: false });
   });
 }
 
@@ -868,7 +901,7 @@ function tallyCard(t, bump) {
   // Hold to lift and drag anywhere (in edit mode a plain press drags); held still = the menu.
   let fromGroup = '';
   dragSort(card, {
-    holdMs: editMode ? 0 : homeDay ? 500 : 250, // ready to drag after 0.25s
+    holdMs: editMode ? 0 : homeDay ? 500 : CARD_HOLD_MS, // ready to drag after 0.25s
     menuMs: 500, // held still 0.5s: the menu
     noDrag: !!homeDay && !editMode, // looking back at an earlier day: no rearranging (the order is shared by every day)
     scroller: $('#tally-list'),

@@ -1473,7 +1473,7 @@ html[data-theme="dark"] .p-low .todo-tag, html[data-theme="dark"] .todo-tag.p-lo
 .hist-arrow:disabled { color: var(--line); }
 
 /* ---------- Edit mode: drag group chips to reorder groups ---------- */
-.group-chips.editing .group-chip[data-group] { touch-action: none; cursor: grab; animation: jiggle .28s ease-in-out infinite alternate; }
+.group-chips.editing .group-chip[data-group] { touch-action: pan-x; cursor: grab; animation: jiggle .28s ease-in-out infinite alternate; }
 .group-chips.editing .group-chip[data-group]:nth-child(even) { animation-direction: alternate-reverse; }
 .group-chip.dragging { animation: none !important; transform: scale(1.08); box-shadow: 0 6px 16px rgba(0,0,0,.18); z-index: 2; transition: none; position: relative; }
 @media (prefers-reduced-motion: reduce) { .group-chips.editing .group-chip { animation: none !important; } }
@@ -1850,3 +1850,9 @@ body[data-cards="l"] .tally-list:not(.list) .card { aspect-ratio: 16 / 10; }
 .limit-bar span { display: block; height: 100%; border-radius: inherit; background: currentColor; }
 /* Goal form: a screen-time limit's unit, period and direction are set in App Locks */
 .fixed { pointer-events: none; opacity: .5; }
+
+/* Edit mode: a group heading's grip (drag the whole group up or down) */
+.group-grip { margin-left: auto; padding: 0 4px; cursor: grab; }
+.group-block.lifted .group-title { opacity: .6; }
+.group-block.drag-placeholder { opacity: .3; }
+.drag-ghost.group-block { background: var(--bg); border-radius: 18px; box-shadow: 0 14px 34px rgba(20, 30, 60, .25); padding: 8px 10px; }
