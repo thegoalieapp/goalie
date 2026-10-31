@@ -8,19 +8,41 @@ import UIKit
 
 class GoalieShield: ShieldConfigurationDataSource {
     override func configuration(shielding application: Application) -> ShieldConfiguration {
-        screen(for: LockStorage.lock(covering: application.token, category: nil))
+        screen(app: application.token, category: nil, web: nil)
     }
 
     override func configuration(shielding application: Application, in category: ActivityCategory) -> ShieldConfiguration {
-        screen(for: LockStorage.lock(covering: application.token, category: category.token))
+        screen(app: application.token, category: category.token, web: nil)
     }
 
     override func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {
-        screen(for: LockStorage.lock(covering: nil, category: nil, web: webDomain.token))
+        screen(app: nil, category: nil, web: webDomain.token)
     }
 
     override func configuration(shielding webDomain: WebDomain, in category: ActivityCategory) -> ShieldConfiguration {
-        screen(for: LockStorage.lock(covering: nil, category: category.token, web: webDomain.token))
+        screen(app: nil, category: category.token, web: webDomain.token)
+    }
+
+    /// A screen-time limit reached comes first (it's the reason for this lock); otherwise the goals lock.
+    private func screen(app: ApplicationToken?, category: ActivityCategoryToken?, web: WebDomainToken?) -> ShieldConfiguration {
+        if let goal = ScreenStorage.limitGoal(covering: app, category: category, web: web) {
+            return limitScreen(for: goal)
+        }
+        return screen(for: LockStorage.lock(covering: app, category: category, web: web))
+    }
+
+    private func limitScreen(for goal: ScreenGoal) -> ShieldConfiguration {
+        let dark = UITraitCollection.current.userInterfaceStyle == .dark
+        return ShieldConfiguration(
+            backgroundBlurStyle: nil,
+            backgroundColor: .systemBackground,
+            icon: UIImage(named: dark ? "ShieldIcon" : "ShieldIconNavy"),
+            title: ShieldConfiguration.Label(text: "\(goal.name): limit reached", color: Self.ink),
+            subtitle: ShieldConfiguration.Label(
+                text: "You've used your \(goal.limit) minutes for today.\nThese apps unlock at midnight.",
+                color: Self.ink.withAlphaComponent(0.85)),
+            primaryButtonLabel: ShieldConfiguration.Label(text: "OK", color: Self.paper),
+            primaryButtonBackgroundColor: Self.ink)
     }
 
     private static let navy = UIColor(red: 0x1c / 255, green: 0x2a / 255, blue: 0x4a / 255, alpha: 1)

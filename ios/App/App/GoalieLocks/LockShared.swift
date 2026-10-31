@@ -8,6 +8,7 @@
 import Foundation
 import FamilyControls
 import ManagedSettings
+import DeviceActivity
 
 enum LockShared {
     static let group = "group.com.thegoalieapp.goalie"
@@ -102,6 +103,12 @@ enum LockStorage {
         }
     }
 
+    /// Today as "2026-10-30" (the phone's own calendar).
+    static func dayKey(_ date: Date = Date()) -> String {
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
     /// New day: lock again every lock whose goals' period just restarted (a new day for daily
     /// goals; the first day of a week, month or year for the others).
     static func relockForNewPeriods(now: Date = Date()) {
@@ -126,5 +133,102 @@ enum LockStorage {
             apply(all[index])
         }
         saveConfigs(all)
+    }
+}
+
+/* ---------- Screen-time goals ----------
+   A minutes-per-day goal can be filled in automatically from Screen Time ("Instagram: under 30 min a
+   day"). Apple never hands apps usage numbers, but it does tell the re-locker when the chosen apps
+   reach set amounts today, so Goalie asks to hear at every step (5, 10, 15… minutes) and logs the
+   highest one reached. A limit goal can also lock its apps once the limit is reached, until midnight. */
+
+struct ScreenGoal: Codable {
+    var key: String      // the goal's screen-time key (its apps are saved as "selection-screen-<key>")
+    var name: String     // the goal's name, for the lock screen
+    var limit: Int       // the goal's target in minutes (0: no target)
+    var lock: Bool       // lock the apps once the limit is reached
+}
+
+/// The highest step reached on one day, and when.
+struct ScreenUsage: Codable {
+    var minutes: Int
+    var at: Double       // milliseconds since 1970, like JavaScript
+}
+
+enum ScreenStorage {
+    private static let goalsKey = "screenGoals"
+    private static let usageKey = "screenUsage"
+
+    static func activity(_ key: String) -> DeviceActivityName { DeviceActivityName("goalie.screen.\(key)") }
+    static func key(of activity: DeviceActivityName) -> String? {
+        let prefix = "goalie.screen."
+        return activity.rawValue.hasPrefix(prefix) ? String(activity.rawValue.dropFirst(prefix.count)) : nil
+    }
+    static func selection(_ key: String) -> FamilyActivitySelection? { LockStorage.selection("screen-\(key)") }
+
+    static func goals() -> [ScreenGoal] {
+        guard let data = LockShared.defaults.data(forKey: goalsKey) else { return [] }
+        return (try? JSONDecoder().decode([ScreenGoal].self, from: data)) ?? []
+    }
+    static func saveGoals(_ goals: [ScreenGoal]) {
+        LockShared.defaults.set(try? JSONEncoder().encode(goals), forKey: goalsKey)
+    }
+
+    /// key → day → highest step reached.
+    static func usage() -> [String: [String: ScreenUsage]] {
+        guard let data = LockShared.defaults.data(forKey: usageKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: [String: ScreenUsage]].self, from: data)) ?? [:]
+    }
+
+    /// Record a step reached today (keeps the last three weeks).
+    static func record(_ key: String, minutes: Int) {
+        var all = usage()
+        var days = all[key] ?? [:]
+        let today = LockStorage.dayKey()
+        if minutes > (days[today]?.minutes ?? 0) {
+            days[today] = ScreenUsage(minutes: minutes, at: Date().timeIntervalSince1970 * 1000)
+        }
+        let cutoff = LockStorage.dayKey(Date().addingTimeInterval(-21 * 86_400))
+        all[key] = days.filter { $0.key >= cutoff }
+        LockShared.defaults.set(try? JSONEncoder().encode(all), forKey: usageKey)
+    }
+
+    static func minutesToday(_ key: String) -> Int { usage()[key]?[LockStorage.dayKey()]?.minutes ?? 0 }
+
+    /// The steps to hear about: every 5 minutes to twice the limit (at least an hour past it), with
+    /// bigger steps for long limits so there are never more than 48.
+    static func steps(limit: Int) -> [Int] {
+        let top = min(24 * 60 - 5, limit > 0 ? max(limit * 2, limit + 60) : 240)
+        var step = 5
+        while top / step > 48 { step += 5 }
+        var list = Array(stride(from: step, through: top, by: step))
+        if limit > 0 && !list.contains(limit) { list.append(limit) } // always hear the limit itself
+        return list.sorted()
+    }
+
+    private static func store(_ key: String) -> ManagedSettingsStore {
+        ManagedSettingsStore(named: ManagedSettingsStore.Name("screen-\(key)"))
+    }
+
+    /// Lock a goal's apps for the rest of the day (its limit was reached).
+    static func lockApps(_ key: String) {
+        guard let picked = selection(key) else { return }
+        let store = store(key)
+        store.shield.applications = picked.applicationTokens.isEmpty ? nil : picked.applicationTokens
+        store.shield.applicationCategories = picked.categoryTokens.isEmpty ? nil : .specific(picked.categoryTokens)
+        store.shield.webDomains = picked.webDomainTokens.isEmpty ? nil : picked.webDomainTokens
+    }
+
+    static func unlockApps(_ key: String) { store(key).clearAllSettings() }
+
+    /// The goal's limit-lock that covers an app, for the lock screen.
+    static func limitGoal(covering app: ApplicationToken?, category: ActivityCategoryToken?, web: WebDomainToken?) -> ScreenGoal? {
+        goals().first { goal in
+            guard goal.lock, goal.limit > 0, minutesToday(goal.key) >= goal.limit, let picked = selection(goal.key) else { return false }
+            if let app, picked.applicationTokens.contains(app) { return true }
+            if let web, picked.webDomainTokens.contains(web) { return true }
+            if let category, picked.categoryTokens.contains(category) { return true }
+            return false
+        }
     }
 }

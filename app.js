@@ -874,7 +874,7 @@ function tallyCard(t, bump) {
     scroller: $('#tally-list'),
     itemSelector: '#tally-list .card',
     containerSelector: '#tally-list .grid',
-    onTap: () => (editMode ? openForm(t) : completed && !goalEnded(t) ? toast('Goal completed. Use + or − to change it.') : onTap(t)),
+    onTap: () => (editMode ? openForm(t) : !t.screen && completed && !goalEnded(t) ? toast('Goal completed. Use + or − to change it.') : onTap(t)),
     onHold: () => (editMode ? openForm(t) : tallyMenu(t)),
     onLift: () => { fromGroup = card.parentElement?.dataset.group || ''; },
     onDrop: () => commitCardOrder(card, t, fromGroup),
@@ -1181,6 +1181,8 @@ function cardFoot(t, label) {
     b.addEventListener('click', e => { e.stopPropagation(); action(); });
     return b;
   };
+  // Screen-time goals fill themselves in (locks.js): no − / +.
+  if (t.screen) return el('div', { class: 'card-foot is-screen' }, el('div', { class: 'card-bottom' }, 'Screen time'));
   if (isCheck(t)) {
     const done = !!lastInPeriod(t);
     const x = btn(checkMark(false), 'minus', () => takeBack(t), !done);
@@ -1196,6 +1198,7 @@ function cardFoot(t, label) {
 }
 
 function onTap(t) {
+  if (t.screen) { toast('Tracked automatically from Screen Time'); return; }
   if (goalEnded(t)) { repeatSheet(t); return; }
   if (offDay(t)) {
     // Logs on days the goal doesn't measure don't count toward it; check before logging one.
@@ -1603,7 +1606,8 @@ function syncForm() {
   $('#f-bottom').classList.toggle('hidden', form.bottomMode !== 'custom');
   $('#f-unit').classList.toggle('hidden', form.unit !== 'custom');
   $('#goal-amount-row').classList.toggle('hidden', isCheck(form));
-  $('#amount-section').classList.toggle('hidden', isCheck(form));
+  $('#amount-section').classList.toggle('hidden', isCheck(form) || !!form.screen);
+  window.goalieScreen?.syncForm(); // App Store app: Screen Time tracking for minutes goals (locks.js)
   setSeg('per', byDate(form) ? 'date' : form.reset);
   $('#f-default').value = isFinite(form.defaultCount) ? fmt(form.defaultCount) : $('#f-default').value;
   $('#bottom-unit-btn').textContent = unitLabel(form).toUpperCase() || 'MEASUREMENT';
@@ -1628,7 +1632,8 @@ function validateForm() {
   const ok = form.name.trim().length > 0 && (form.days.length > 0 || !daysPickable(form)) &&
     isFinite(form.defaultCount) && form.defaultCount !== 0 &&
     (form.target == null || form.target > 0) &&
-    (form.unit !== 'custom' || (form.customUnit || '').trim().length > 0);
+    (form.unit !== 'custom' || (form.customUnit || '').trim().length > 0) &&
+    (!form.screen || !!form.screenApps); // Screen Time tracking needs its apps chosen
   $('#btn-submit').disabled = !ok;
 }
 

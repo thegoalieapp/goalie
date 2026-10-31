@@ -24,8 +24,8 @@ app.build_configurations.each { |c| c.build_settings['IPHONEOS_DEPLOYMENT_TARGET
 
 EXTENSIONS = [
   ['GoalieMonitor', 'com.thegoalieapp.goalie.monitor', %w[DeviceActivity ManagedSettings FamilyControls]],
-  ['GoalieShield', 'com.thegoalieapp.goalie.shield', %w[ManagedSettings ManagedSettingsUI FamilyControls]],
-  ['GoalieShieldAction', 'com.thegoalieapp.goalie.shieldaction', %w[ManagedSettings FamilyControls UserNotifications]],
+  ['GoalieShield', 'com.thegoalieapp.goalie.shield', %w[ManagedSettings ManagedSettingsUI FamilyControls DeviceActivity]],
+  ['GoalieShieldAction', 'com.thegoalieapp.goalie.shieldaction', %w[ManagedSettings FamilyControls DeviceActivity]],
 ].freeze
 
 embed = app.copy_files_build_phases.find { |p| p.symbol_dst_subfolder_spec == :plug_ins }

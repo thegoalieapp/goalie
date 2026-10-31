@@ -24,7 +24,8 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "requestAuthorization", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pickApps", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "screenGoals", returnType: CAPPluginReturnPromise)
     ]
 
     private static let daily = DeviceActivityName("goalie.daily")
@@ -59,6 +60,9 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 LockStorage.saveSelection(chosen, for: id)
                 if let lock = LockStorage.configs().first(where: { $0.id == id }) { LockStorage.apply(lock) }
+                if id.hasPrefix("screen-") { // a screen-time goal's apps changed: listen again
+                    LockShared.defaults.removeObject(forKey: "screenSig-\(id.dropFirst("screen-".count))")
+                }
                 host?.dismiss(animated: true)
                 call.resolve(Self.counts(chosen))
             }, onCancel: {
@@ -93,6 +97,69 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         LockStorage.saveConfigs(rest)
         Self.monitorNewDays(!rest.isEmpty)
         call.resolve()
+    }
+
+    /// Screen-time goals: listen for each one's apps reaching every step today, stop listening for
+    /// goals that are gone, lock or unlock limit goals, and send back the steps recorded so far:
+    /// { usage: { key: { "2026-10-30": { minutes, at } } } }.
+    @objc func screenGoals(_ call: CAPPluginCall) {
+        guard let json = call.getString("json")?.data(using: .utf8),
+              let goals = try? JSONDecoder().decode([ScreenGoal].self, from: json) else {
+            return call.reject("Couldn't read the screen-time goals")
+        }
+        let center = DeviceActivityCenter()
+        let keys = Set(goals.map(\.key))
+        for gone in ScreenStorage.goals() where !keys.contains(gone.key) {
+            center.stopMonitoring([ScreenStorage.activity(gone.key)])
+            ScreenStorage.unlockApps(gone.key)
+            LockShared.defaults.removeObject(forKey: "screenSig-\(gone.key)")
+        }
+        ScreenStorage.saveGoals(goals)
+        for goal in goals {
+            guard let picked = ScreenStorage.selection(goal.key) else { continue }
+            // Start (or restart) listening only when the apps or the limit changed: restarting
+            // mid-day would hear today's steps again.
+            let sig = "\(goal.limit)"
+            let activity = ScreenStorage.activity(goal.key)
+            if LockShared.defaults.string(forKey: "screenSig-\(goal.key)") != sig || !center.activities.contains(activity) {
+                var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+                for minutes in ScreenStorage.steps(limit: goal.limit) {
+                    events[DeviceActivityEvent.Name("m\(minutes)")] = Self.event(picked, minutes: minutes)
+                }
+                center.stopMonitoring([activity])
+                do {
+                    try center.startMonitoring(activity, during: DeviceActivitySchedule(
+                        intervalStart: DateComponents(hour: 0, minute: 0),
+                        intervalEnd: DateComponents(hour: 23, minute: 59),
+                        repeats: true), events: events)
+                    LockShared.defaults.set(sig, forKey: "screenSig-\(goal.key)")
+                } catch {
+                    // Not listening; the next call tries again.
+                }
+            }
+            if goal.lock && goal.limit > 0 && ScreenStorage.minutesToday(goal.key) >= goal.limit {
+                ScreenStorage.lockApps(goal.key)
+            } else {
+                ScreenStorage.unlockApps(goal.key)
+            }
+        }
+        var usage: [String: Any] = [:]
+        for (key, days) in ScreenStorage.usage() {
+            usage[key] = days.mapValues { ["minutes": $0.minutes, "at": $0.at] }
+        }
+        call.resolve(["usage": usage])
+    }
+
+    /// "These apps reached this many minutes today", counting use from before Goalie started
+    /// listening where iOS allows it.
+    private static func event(_ picked: FamilyActivitySelection, minutes: Int) -> DeviceActivityEvent {
+        let threshold = DateComponents(minute: minutes)
+        if #available(iOS 17.4, *) {
+            return DeviceActivityEvent(applications: picked.applicationTokens, categories: picked.categoryTokens,
+                                       webDomains: picked.webDomainTokens, threshold: threshold, includesPastActivity: true)
+        }
+        return DeviceActivityEvent(applications: picked.applicationTokens, categories: picked.categoryTokens,
+                                   webDomains: picked.webDomainTokens, threshold: threshold)
     }
 
     private struct UpdatePayload: Decodable {

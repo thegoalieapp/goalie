@@ -222,3 +222,106 @@ if (isNativeApp && locksPlugin()) {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncLocks({ now: true }); });
   setInterval(() => syncLocks(), 60000); // a new day (or week…) can start while Goalie is open
 }
+
+/* =========================================================
+   Screen-time goals (App Store app only)
+   =========================================================
+   A minutes-per-day goal can fill itself in from Screen Time: pick the apps, and Goalie logs their
+   use today in 5-minute steps (Apple only says when the apps reach each step, never exact numbers).
+   A limit goal ("Instagram: under 30 min a day") can also lock its apps once the limit is reached,
+   until midnight. Usage recorded while Goalie was closed is filled in the next time it opens.
+
+   Goal fields: screen (on/off), screenKey (where its apps are saved on the phone), screenApps (how
+   many apps / categories / websites), screenLock (lock at the limit). */
+
+const screenEligible = f => f.unit === 'minutes' && f.reset === 'day' && !byDate(f);
+const canLockAtLimit = f => f.direction === 'decrease' && f.target > 0;
+
+// The goal form's Screen Time section (shown for minutes-per-day goals).
+function syncScreenForm() {
+  const show = screenEligible(form);
+  if (!show) form.screen = false;
+  $('#screen-section').classList.toggle('hidden', !show);
+  $$('#screen-mode button').forEach(b => b.classList.toggle('on', b.dataset.v === (form.screen ? 'on' : 'off')));
+  $('#screen-options').classList.toggle('hidden', !form.screen);
+  $('#screen-apps-value').textContent = form.screenApps ? appsText(form.screenApps).toUpperCase() : 'CHOOSE APPS';
+  $('#screen-lock-row').classList.toggle('hidden', !canLockAtLimit(form));
+  $$('#screen-lock button').forEach(b => b.classList.toggle('on', b.dataset.v === (form.screenLock ? 'on' : 'off')));
+  $('#screen-note').textContent = form.screen
+    ? 'Goalie fills this in by itself, in 5-minute steps, even while it’s closed. Apple never shows Goalie which apps you pick or exactly how long you use them.'
+    : 'Track time in apps like Instagram without logging it yourself.';
+}
+
+function screenFormSetup() {
+  $('#screen-mode').addEventListener('click', async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    form.screen = b.dataset.v === 'on';
+    if (form.screen) {
+      // Screen Time permission first (the same one app locks use).
+      try {
+        let { status } = await locksPlugin().authorization();
+        if (status !== 'approved') ({ status } = await locksPlugin().requestAuthorization());
+        if (status !== 'approved') { form.screen = false; toast('Goalie needs Screen Time access for this'); }
+      } catch (err) { form.screen = false; }
+      if (form.screen && form.target == null && form.direction === 'decrease') { form.target = 30; $('#f-goal').value = 30; }
+    }
+    syncForm();
+  });
+  $('#btn-screen-apps').addEventListener('click', async () => {
+    form.screenKey ||= uid();
+    try {
+      const r = await locksPlugin().pickApps({ id: `screen-${form.screenKey}`, locked: false });
+      if (!r.cancelled) form.screenApps = (r.apps || r.categories || r.sites) ? { apps: r.apps, categories: r.categories, sites: r.sites } : null;
+    } catch (err) { toast('Couldn’t open the app picker'); }
+    syncForm();
+  });
+  $('#screen-lock').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    form.screenLock = b.dataset.v === 'on';
+    syncForm();
+  });
+}
+
+// Usage recorded on the phone → entries. Each day's highest step becomes that day's total (only
+// what's missing is added), dated when it was reached.
+function applyScreenUsage(usage) {
+  let added = false;
+  for (const t of state.tallies) {
+    if (!t.screen || !t.screenKey || !usage[t.screenKey]) continue;
+    for (const [day, rec] of Object.entries(usage[t.screenKey])) {
+      const [y, m, d] = day.split('-').map(Number);
+      const from = new Date(y, m - 1, d).getTime(), to = new Date(y, m - 1, d + 1).getTime();
+      const logged = entriesFor(t.id).reduce((s, e) => (e.ts >= from && e.ts < to ? s + e.value : s), 0);
+      if (rec.minutes > logged) {
+        state.entries.push({ id: uid(), tallyId: t.id, ts: Math.min(Math.max(rec.at, from), to - 1), value: rec.minutes - logged, auto: true });
+        added = true;
+      }
+    }
+  }
+  if (added) { save(); renderToday(); }
+}
+
+let screenTimer = null;
+function syncScreenGoals({ now = false } = {}) {
+  clearTimeout(screenTimer);
+  screenTimer = setTimeout(async () => {
+    const goals = state.tallies.filter(t => t.screen && t.screenKey && t.screenApps).map(t => ({
+      key: t.screenKey, name: t.name, limit: t.target > 0 ? Math.round(t.target) : 0, lock: !!t.screenLock && canLockAtLimit(t),
+    }));
+    try {
+      const { usage } = await locksPlugin().screenGoals({ json: JSON.stringify(goals) });
+      applyScreenUsage(usage || {});
+    } catch (e) { console.warn('Goalie screen time:', e); }
+  }, now ? 0 : 1000);
+}
+
+if (isNativeApp && locksPlugin()) {
+  $('#screen-section').dataset.ready = '1';
+  screenFormSetup();
+  window.goalieScreen = { syncForm: syncScreenForm };
+  const previous = window.goalieLocks;
+  window.goalieLocks = () => { previous?.(); syncScreenGoals(); }; // save() calls this
+  storageReady.then(() => syncScreenGoals({ now: true }));
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncScreenGoals({ now: true }); });
+  setInterval(() => syncScreenGoals(), 60000);
+}

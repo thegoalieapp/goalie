@@ -1832,3 +1832,8 @@ body[data-cards="l"] .tally-list:not(.list) .card { aspect-ratio: 16 / 10; }
 .lock-goal-pick.on .lock-pick-box { background: var(--navy); border-color: var(--navy); color: #fff; }
 .lock-pick-period { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted); }
 .sheet-btn.danger.disabled { opacity: .45; }
+
+/* Screen-time goals: no − / +, just a "Screen time" label */
+.card-foot.is-screen { justify-content: center; min-height: 30px; }
+.card-foot.is-screen .card-bottom { flex: none; }
+#screen-options .link-row { margin-bottom: 4px; }
