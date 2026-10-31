@@ -29,11 +29,16 @@ const reasons = body => JSON.stringify((body.errors || []).map(e => `${e.title}:
   } else if (command === 'profiles') {
     const [dir, ...names] = args;
     fs.mkdirSync(dir, { recursive: true });
+    const { status, body } = await api('/v1/profiles?limit=200&fields[profiles]=name,uuid,profileState,profileContent');
+    if (status !== 200) { console.log(`::error::Couldn't list the signing profiles (${status} ${reasons(body)})`); process.exitCode = 1; return; }
+    const all = body.data || [];
     for (const name of names) {
-      const { status, body } = await api(`/v1/profiles?filter[name]=${encodeURIComponent(name)}&filter[profileState]=ACTIVE&fields[profiles]=name,uuid,profileContent`);
-      const profile = (body.data || []).find(p => p.attributes.name === name);
+      const matches = all.filter(p => p.attributes.name.trim().toLowerCase() === name.toLowerCase());
+      const profile = matches.find(p => p.attributes.profileState === 'ACTIVE');
       if (!profile) {
-        console.log(`::error::No active signing profile named "${name}" in the developer portal (${status} ${status === 200 ? '' : reasons(body)})`);
+        console.log(matches.length
+          ? `::error::Signing profile "${name}" is ${matches.map(p => p.attributes.profileState).join(', ')}, not active: open it in the developer portal → Edit → Generate`
+          : `::error::No signing profile named "${name}". The profiles the build can see: ${all.map(p => `"${p.attributes.name}" (${p.attributes.profileState})`).join(', ') || 'none'}`);
         process.exitCode = 1;
         continue;
       }
