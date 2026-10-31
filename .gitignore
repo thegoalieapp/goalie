@@ -14,3 +14,10 @@ goalie-backup-*.json
 # Native build output (rebuilt by npm run build)
 www/
 !ios/App/GoalieShield/*.png
+
+# Apple signing files (keep them out of the repo)
+*.mobileprovision
+*.cer
+*.p12
+*.certSigningRequest
+*.key
