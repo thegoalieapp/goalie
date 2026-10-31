@@ -24,5 +24,5 @@ The borrowed Mac didn't have room for Xcode, so builds run in the cloud: `.githu
 - Build 12 (TestFlight) is the 1.0 submission build: sign-in and sync, app locks, screen-time limits (Settings → App Locks · Screen Time; they always lock at the limit and also show as a goal card), real reminders, iPad layout, Customizable App Features.
 - Screen Time minutes (entries with auto: true) never sync to the cloud: account.js keeps them, and deleted limits' minutes, out of the cloud copy. Keep it that way (privacy policy and Apple's Screen Time rules).
 - App locks: locks.js, ios/App/App/GoalieLocks/, and the helpers in ios/App/GoalieMonitor, GoalieShield and GoalieShieldAction, added to the Xcode project by tools/add-lock-targets.rb (the cloud build runs it).
-- The App Store listing text, privacy answers and review notes are on a Claude artifact page; screenshots are in the owner's DocumentsGoalie App Store screenshots.
+- The App Store listing text, privacy answers and review notes are on a Claude artifact page; screenshots are in the owner's `Documents\Goalie App Store screenshots` folder.
 - Still to do after launch: widgets.
