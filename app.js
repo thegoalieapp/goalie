@@ -703,16 +703,27 @@ function allGroupNames() {
 
 // Edit mode: drag a group chip left or right to reorder the groups (their cards move with them).
 let chipDragAt = 0;
+// The chip lifts as soon as it's pressed and slides under the finger; the others make room as it
+// passes. (Moves are followed on the window: moving the chip within the row makes iPhone Safari drop
+// a grip held on the chip itself.)
 function attachChipDrag(chip, box) {
   chip.addEventListener('pointerdown', e => {
     if (!editMode) return;
     const startX = e.clientX;
+    const grab = startX - chip.getBoundingClientRect().left; // where on the chip the finger is
     let moved = false;
-    chip.setPointerCapture(e.pointerId);
+    chip.classList.add('dragging');
+    // Keep the chip under the finger, wherever its place in the row is now.
+    const follow = x => {
+      chip.style.transform = 'none';
+      const left = chip.getBoundingClientRect().left;
+      chip.style.transform = `translateX(${x - grab - left}px) scale(1.08)`;
+    };
     const move = ev => {
+      if (ev.pointerId !== e.pointerId) return;
       if (!moved && Math.abs(ev.clientX - startX) < 6) return;
       moved = true;
-      chip.classList.add('dragging');
+      ev.preventDefault();
       const target = [...box.querySelectorAll('.group-chip[data-group]')].find(c => {
         if (c === chip) return false;
         const r = c.getBoundingClientRect();
@@ -725,20 +736,24 @@ function attachChipDrag(chip, box) {
       const br = box.getBoundingClientRect();
       if (ev.clientX < br.left + 30) box.scrollLeft -= 8;
       else if (ev.clientX > br.right - 30) box.scrollLeft += 8;
+      follow(ev.clientX);
     };
-    const end = () => {
-      chip.removeEventListener('pointermove', move);
-      chip.removeEventListener('pointerup', end);
-      chip.removeEventListener('pointercancel', end);
+    const end = ev => {
+      if (ev.pointerId !== e.pointerId) return;
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', end);
+      removeEventListener('pointercancel', end);
+      chip.classList.remove('dragging');
+      chip.style.transform = '';
       if (!moved) return;
       chipDragAt = Date.now();
       state.settings.groupOrder = [...box.querySelectorAll('.group-chip[data-group]')].map(c => c.dataset.group);
       save();
       renderToday();
     };
-    chip.addEventListener('pointermove', move);
-    chip.addEventListener('pointerup', end);
-    chip.addEventListener('pointercancel', end);
+    addEventListener('pointermove', move, { passive: false });
+    addEventListener('pointerup', end);
+    addEventListener('pointercancel', end);
   });
 }
 

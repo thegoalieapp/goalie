@@ -1475,7 +1475,7 @@ html[data-theme="dark"] .p-low .todo-tag, html[data-theme="dark"] .todo-tag.p-lo
 /* ---------- Edit mode: drag group chips to reorder groups ---------- */
 .group-chips.editing .group-chip[data-group] { touch-action: none; cursor: grab; animation: jiggle .28s ease-in-out infinite alternate; }
 .group-chips.editing .group-chip[data-group]:nth-child(even) { animation-direction: alternate-reverse; }
-.group-chip.dragging { animation: none !important; transform: scale(1.08); box-shadow: 0 6px 16px rgba(0,0,0,.18); z-index: 2; }
+.group-chip.dragging { animation: none !important; transform: scale(1.08); box-shadow: 0 6px 16px rgba(0,0,0,.18); z-index: 2; transition: none; position: relative; }
 @media (prefers-reduced-motion: reduce) { .group-chips.editing .group-chip { animation: none !important; } }
 
 /* ---------- Load: hide until the Outfit font is ready (no size jump) ---------- */
