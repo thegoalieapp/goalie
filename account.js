@@ -72,7 +72,8 @@ const EMPTY_VIEW = () => cloudView(DEFAULT_STATE());
 function cloudView(s) {
   const settings = { ...s.settings };
   for (const k of DEVICE_SETTINGS) delete settings[k];
-  const entries = s.entries.slice().sort((a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // Minutes filled in from Screen Time (auto) stay on this phone: Screen Time data never leaves it.
+  const entries = s.entries.filter(e => !e.auto).sort((a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return JSON.parse(JSON.stringify({
     tallies: s.tallies, entries, trash: s.trash, todos: s.todos,
     todoSections: s.todoSections, todoTrash: s.todoTrash, settings,
@@ -290,7 +291,8 @@ async function upload(view) {
 // Bring changes from the cloud into this device's data.
 function applyMerged(view) {
   const keep = Object.fromEntries(DEVICE_SETTINGS.filter(k => k in state.settings).map(k => [k, state.settings[k]]));
-  state = normalizeState({ ...view, settings: { ...view.settings, ...keep } });
+  const screenTime = state.entries.filter(e => e.auto); // kept on this phone, never in the cloud copy
+  state = normalizeState({ ...view, entries: [...view.entries, ...screenTime], settings: { ...view.settings, ...keep } });
   clearUndoHistory();
   save();
   applyTheme();
