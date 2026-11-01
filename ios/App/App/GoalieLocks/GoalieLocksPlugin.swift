@@ -30,8 +30,15 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private static let daily = DeviceActivityName("goalie.daily")
 
+    /// Right after Goalie starts, iPhone reports "not decided yet" for a moment before it has looked up
+    /// the real answer, so give it up to 2 seconds to settle.
     @objc func authorization(_ call: CAPPluginCall) {
-        call.resolve(["status": Self.status()])
+        Task { @MainActor in
+            for _ in 0..<20 where AuthorizationCenter.shared.authorizationStatus == .notDetermined {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            call.resolve(["status": Self.status()])
+        }
     }
 
     @objc func requestAuthorization(_ call: CAPPluginCall) {
@@ -122,7 +129,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             // Start (or restart) listening only when the apps or the limit changed: restarting
             // mid-day would hear today's steps again.
             let each = goal.each == true && goal.limit > 0
-            let sig = "\(goal.limit)\(each ? "-each" : "")"
+            let sig = "\(ScreenStorage.stepsVersion)-\(goal.limit)\(each ? "-each" : "")"
             let activity = ScreenStorage.activity(goal.key)
             if LockShared.defaults.string(forKey: "screenSig-\(goal.key)") != sig || !center.activities.contains(activity) {
                 var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]

@@ -81,6 +81,17 @@ function syncLocks({ now = false } = {}) {
 }
 
 /* ---------- Locks screen ---------- */
+// Screen Time access, once allowed, is remembered: right after Goalie starts, iPhone can still say
+// "not decided yet" for a moment, and that mustn't bring back the Allow button. (Turned off in
+// Settings, it says "denied", which still shows.)
+const SCREEN_TIME_OK = 'goalie.screenTimeOK';
+function rememberScreenTime() {
+  try {
+    if (locksUi.auth === 'approved') localStorage.setItem(SCREEN_TIME_OK, '1');
+    else if (locksUi.auth === 'denied') localStorage.removeItem(SCREEN_TIME_OK);
+    else if (locksUi.auth === 'notDetermined' && localStorage.getItem(SCREEN_TIME_OK)) locksUi.auth = 'approved';
+  } catch (e) { /* storage blocked */ }
+}
 function appsText(apps) {
   if (!apps) return 'No apps chosen yet';
   const parts = [];
@@ -103,6 +114,7 @@ async function renderLocks() {
   const box = $('#locks-body');
   box.innerHTML = '';
   try { locksUi.auth = (await locksPlugin().authorization()).status; } catch (e) { locksUi.auth = 'unavailable'; }
+  rememberScreenTime();
   if (locksUi.auth !== 'approved') {
     box.append(el('div', { class: 'locks-intro' },
       el('h3', {}, 'Lock apps until your goals are done'),
@@ -137,6 +149,7 @@ async function renderLocks() {
 
 async function allowScreenTime() {
   try { locksUi.auth = (await locksPlugin().requestAuthorization()).status; } catch (e) { /* stays as it was */ }
+  rememberScreenTime();
   renderLocks();
 }
 

@@ -185,7 +185,10 @@ async function startSync(user) {
   const provider = user.providerData[0]?.providerId === 'apple.com' ? 'apple' : 'google';
   writeAccount({ uid: user.uid, email: user.email || '', provider });
   setStatus('connecting');
-  if (!state.settings.name && user.displayName) { state.settings.name = user.displayName.split(' ')[0]; save(); }
+  // First name from the account, when Goalie doesn't have one. (Apple can leave the name out; it then
+  // comes through as the word "null", which is no name at all.)
+  const first = (user.displayName || '').replace(/null/gi, ' ').trim().split(/\s+/)[0];
+  if (!state.settings.name && first) { state.settings.name = first; save(); }
 
   await storageReady; // the IndexedDB copy must be loaded before comparing with the cloud
   let base = null;

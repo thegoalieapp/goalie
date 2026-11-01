@@ -226,13 +226,17 @@ enum ScreenStorage {
 
     static func minutesToday(_ key: String) -> Int { usage()[key]?[LockStorage.dayKey()]?.minutes ?? 0 }
 
-    /// The steps to hear about: every 5 minutes to twice the limit (at least an hour past it), with
-    /// bigger steps for long limits so there are never more than 48.
+    /// The steps to hear about, across the whole day: every 5 minutes for the first 2 hours, then
+    /// every 10 (to 4 hours), 15 (to 8), 30 (to 16) and 60, plus the limit itself. (About 75 in all;
+    /// it used to stop at 4 hours.)
+    static let stepsVersion = "v2" // changing the steps restarts the listening once
     static func steps(limit: Int) -> [Int] {
-        let top = min(24 * 60 - 5, limit > 0 ? max(limit * 2, limit + 60) : 240)
-        var step = 5
-        while top / step > 48 { step += 5 }
-        var list = Array(stride(from: step, through: top, by: step))
+        var list: [Int] = []
+        list += Array(stride(from: 5, through: 120, by: 5))
+        list += Array(stride(from: 130, through: 240, by: 10))
+        list += Array(stride(from: 255, through: 480, by: 15))
+        list += Array(stride(from: 510, through: 960, by: 30))
+        list += Array(stride(from: 1020, through: 1380, by: 60))
         if limit > 0 && !list.contains(limit) { list.append(limit) } // always hear the limit itself
         return list.sorted()
     }

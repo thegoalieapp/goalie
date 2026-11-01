@@ -139,6 +139,9 @@ function setGroups(t, list) {
 function migrate() {
   state.tallies.forEach(t => { if (!Array.isArray(t.groups)) setGroups(t, groupsOf(t)); });
 
+  // A sign-in with Apple that shared no name once saved "nullnull" as the name: clear it.
+  if (/^(null)+$/i.test(state.settings.name || '')) { state.settings.name = ''; save(); }
+
   // One-time: cards used to default to showing "last time"; show the measurement instead.
   if (!state.settings.unitLabelMigrated) {
     state.tallies.forEach(t => { if (t.bottomMode === 'last') t.bottomMode = 'unit'; });
