@@ -15,6 +15,40 @@ enum LockShared {
     static var defaults: UserDefaults { UserDefaults(suiteName: group) ?? .standard }
 }
 
+/// Putting the lock screen on apps. iPhone blocks at most 50 apps (and 50 websites) per settings
+/// store and quietly ignores the rest, so a long list is spread over several stores: "lock-x",
+/// "lock-x-1", "lock-x-2"… (up to 300 apps). Categories have no such limit and go in the first.
+enum Shield {
+    private static let perStore = 50
+    private static let maxStores = 6
+
+    private static func store(_ base: String, _ n: Int) -> ManagedSettingsStore {
+        ManagedSettingsStore(named: ManagedSettingsStore.Name(n == 0 ? base : "\(base)-\(n)"))
+    }
+
+    static func block(_ base: String, apps: Set<ApplicationToken>, categories: Set<ActivityCategoryToken>, webs: Set<WebDomainToken>) {
+        let appList = Array(apps), webList = Array(webs)
+        for n in 0..<maxStores {
+            let someApps = Set(appList.dropFirst(n * perStore).prefix(perStore))
+            let someWebs = Set(webList.dropFirst(n * perStore).prefix(perStore))
+            let store = store(base, n)
+            if n > 0 && someApps.isEmpty && someWebs.isEmpty { store.clearAllSettings(); continue }
+            store.shield.applications = someApps.isEmpty ? nil : someApps
+            store.shield.webDomains = someWebs.isEmpty ? nil : someWebs
+            store.shield.applicationCategories = n == 0 && !categories.isEmpty ? .specific(categories) : nil
+            store.shield.webDomainCategories = n == 0 && !categories.isEmpty ? .specific(categories) : nil
+        }
+    }
+
+    static func block(_ base: String, _ picked: FamilyActivitySelection) {
+        block(base, apps: picked.applicationTokens, categories: picked.categoryTokens, webs: picked.webDomainTokens)
+    }
+
+    static func unblock(_ base: String) {
+        for n in 0..<maxStores { store(base, n).clearAllSettings() }
+    }
+}
+
 /// One goal in a lock, as the lock screen shows it ("Workout 15/45 min").
 struct LockGoal: Codable {
     var name: String
@@ -72,25 +106,17 @@ enum LockStorage {
         LockShared.defaults.removeObject(forKey: "selection-\(id)")
     }
 
-    private static func store(_ id: String) -> ManagedSettingsStore {
-        ManagedSettingsStore(named: ManagedSettingsStore.Name("lock-\(id)"))
-    }
-
     /// Put the lock screen on the lock's apps, or take it off.
     static func apply(_ lock: LockConfig) {
-        let store = store(lock.id)
         guard lock.locked, let picked = selection(lock.id) else {
-            store.clearAllSettings()
+            Shield.unblock("lock-\(lock.id)")
             return
         }
-        store.shield.applications = picked.applicationTokens.isEmpty ? nil : picked.applicationTokens
-        store.shield.applicationCategories = picked.categoryTokens.isEmpty ? nil : .specific(picked.categoryTokens)
-        store.shield.webDomains = picked.webDomainTokens.isEmpty ? nil : picked.webDomainTokens
-        store.shield.webDomainCategories = picked.categoryTokens.isEmpty ? nil : .specific(picked.categoryTokens)
+        Shield.block("lock-\(lock.id)", picked)
     }
 
     static func clear(_ id: String) {
-        store(id).clearAllSettings()
+        Shield.unblock("lock-\(id)")
     }
 
     /// The locked lock that covers an app (or website), for the lock screen's text.
@@ -247,20 +273,13 @@ enum ScreenStorage {
         return list.sorted()
     }
 
-    private static func store(_ key: String) -> ManagedSettingsStore {
-        ManagedSettingsStore(named: ManagedSettingsStore.Name("screen-\(key)"))
-    }
-
     /// Lock a goal's apps for the rest of the day (its limit was reached).
     static func lockApps(_ key: String) {
         guard let picked = selection(key) else { return }
-        let store = store(key)
-        store.shield.applications = picked.applicationTokens.isEmpty ? nil : picked.applicationTokens
-        store.shield.applicationCategories = picked.categoryTokens.isEmpty ? nil : .specific(picked.categoryTokens)
-        store.shield.webDomains = picked.webDomainTokens.isEmpty ? nil : picked.webDomainTokens
+        Shield.block("screen-\(key)", picked)
     }
 
-    static func unlockApps(_ key: String) { store(key).clearAllSettings() }
+    static func unlockApps(_ key: String) { Shield.unblock("screen-\(key)") }
 
     /* Locked hours: their own activity and their own lock, so the daily-minutes lock and the
        locked hours never undo each other. */
@@ -278,17 +297,11 @@ enum ScreenStorage {
         if rest.hasSuffix(".a") || rest.hasSuffix(".b") { return (String(rest.dropLast(2)), String(rest.suffix(1))) }
         return (rest, "a")
     }
-    private static func windowStore(_ key: String) -> ManagedSettingsStore {
-        ManagedSettingsStore(named: ManagedSettingsStore.Name("window-\(key)"))
-    }
     static func lockWindow(_ key: String) {
         guard let picked = selection(key) else { return }
-        let store = windowStore(key)
-        store.shield.applications = picked.applicationTokens.isEmpty ? nil : picked.applicationTokens
-        store.shield.applicationCategories = picked.categoryTokens.isEmpty ? nil : .specific(picked.categoryTokens)
-        store.shield.webDomains = picked.webDomainTokens.isEmpty ? nil : picked.webDomainTokens
+        Shield.block("window-\(key)", picked)
     }
-    static func unlockWindow(_ key: String) { windowStore(key).clearAllSettings() }
+    static func unlockWindow(_ key: String) { Shield.unblock("window-\(key)") }
 
     /// The limit whose locked hours cover an app right now, for the lock screen.
     static func windowGoal(covering app: ApplicationToken?, category: ActivityCategoryToken?, web: WebDomainToken?) -> ScreenGoal? {
@@ -361,9 +374,6 @@ enum ScreenStorage {
     /// Lock just the items that reached their own limit today.
     static func lockReached(_ key: String) {
         let hit = reachedItems(key)
-        let store = store(key)
-        store.shield.applications = hit.apps.isEmpty ? nil : hit.apps
-        store.shield.applicationCategories = hit.categories.isEmpty ? nil : .specific(hit.categories)
-        store.shield.webDomains = hit.webs.isEmpty ? nil : hit.webs
+        Shield.block("screen-\(key)", apps: hit.apps, categories: hit.categories, webs: hit.webs)
     }
 }
