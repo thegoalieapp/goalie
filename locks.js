@@ -35,7 +35,10 @@ function goalDoneForLock(t) {
   return goalReached(t, countThisPeriod(t));
 }
 const lockGoals = lock => lock.goalIds.map(id => state.tallies.find(t => t.id === id)).filter(Boolean);
-const isLocked = lock => lockGoals(lock).some(t => !goalDoneForLock(t));
+// A lock only applies on its days (Sun–Sat; none chosen: every day). On other days its apps are open.
+const lockDays = lock => (Array.isArray(lock.days) && lock.days.length ? lock.days : [0, 1, 2, 3, 4, 5, 6]);
+const lockAppliesToday = lock => lockDays(lock).includes(new Date().getDay());
+const isLocked = lock => lockAppliesToday(lock) && lockGoals(lock).some(t => !goalDoneForLock(t));
 const lockPeriod = t => (t.reset === 'minute' || t.reset === 'hour' ? 'day' : t.reset);
 
 function progressText(t, n) {
@@ -51,6 +54,7 @@ function lockForNative(lock) {
     name: lock.name,
     locked: isLocked(lock),
     relock: [...new Set(goals.map(lockPeriod).filter(p => p !== 'never'))],
+    days: lockDays(lock),
     goals: goals.map(t => ({
       name: t.name,
       progress: progressText(t, countThisPeriod(t)),
@@ -134,7 +138,7 @@ async function renderLocks() {
       el('div', { class: 'lock-card-top' },
         el('strong', {}, lock.name || 'Lock'),
         el('span', { class: 'lock-state' }, locked ? 'LOCKED' : 'UNLOCKED')),
-      el('div', { class: 'lock-apps' }, appsText(lock.apps)),
+      el('div', { class: 'lock-apps' }, [appsText(lock.apps), lockDays(lock).length < 7 ? daysSummary(lockDays(lock)) : ''].filter(Boolean).join(' · ')),
       el('ul', { class: 'lock-goals' }, goals.length
         ? goals.map(t => el('li', { class: goalDoneForLock(t) ? 'done' : '' },
           el('span', { class: 'lock-goal-mark' }, goalDoneForLock(t) ? '✓' : '•'),
@@ -163,6 +167,19 @@ function lockSheet(existing, draft = null) {
   const appsLine = el('div', { class: 'lock-apps' }, appsText(lock.apps));
   const goals = state.tallies.filter(lockable);
   const picks = new Set(lock.goalIds);
+  // Sun–Sat: the days the lock applies. While it's locked, days can be added, not removed.
+  const days = new Set(lockDays(lock));
+  const keepDays = new Set(locked ? lockDays(existing) : []);
+  const daysRow = el('div', { class: 'days multi limit-days' }, ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((label, d) => {
+    const b = el('button', { type: 'button', class: days.has(d) ? 'on' : '', 'aria-pressed': String(days.has(d)) }, label);
+    b.addEventListener('click', () => {
+      if (days.has(d) && keepDays.has(d)) { toast('Locked now: days can be added, not removed'); return; }
+      if (days.has(d)) days.delete(d); else days.add(d);
+      b.classList.toggle('on', days.has(d));
+      b.setAttribute('aria-pressed', String(days.has(d)));
+    });
+    return b;
+  }));
   const goalList = el('div', { class: 'lock-goal-picks' }, goals.length ? goals.map(t => {
     const fixed = kept.has(t.id);
     const row = el('button', { type: 'button', class: `lock-goal-pick${picks.has(t.id) ? ' on' : ''}${fixed ? ' fixed' : ''}`, 'aria-pressed': String(picks.has(t.id)) },
@@ -185,6 +202,8 @@ function lockSheet(existing, draft = null) {
   const saveLock = () => {
     lock.name = nameInput.value.trim();
     lock.goalIds = goals.filter(t => picks.has(t.id)).map(t => t.id);
+    lock.days = [...days].sort((a, b) => a - b);
+    if (!lock.days.length) { toast('Pick at least one day'); return; }
     if (!lock.goalIds.length) { toast('Choose at least one goal'); return; }
     if (!lock.apps || !(lock.apps.apps || lock.apps.categories || lock.apps.sites)) { toast('Choose at least one app'); return; }
     if (existing) commitLock(lock); else confirmNewLock(lock);
@@ -215,6 +234,8 @@ function lockSheet(existing, draft = null) {
     el('button', { type: 'button', class: 'sheet-btn', onclick: chooseApps }, lock.apps ? (locked ? 'Add apps' : 'Change apps') : 'Choose apps'),
     el('div', { class: 'sheet-label' }, 'GOALS THAT UNLOCK IT'),
     goalList,
+    el('div', { class: 'sheet-label' }, 'DAYS'),
+    daysRow,
     el('button', { class: 'sheet-btn primary', onclick: saveLock }, existing ? 'Save' : 'Turn on lock'),
     existing ? el('button', { class: `sheet-btn danger${locked ? ' disabled' : ''}`, onclick: deleteLock }, 'Delete lock') : null,
     el('button', { class: 'sheet-btn', onclick: cancel }, 'Cancel'),
@@ -241,10 +262,13 @@ function confirmNewLock(lock) {
   openSheet(
     el('h3', {}, 'Are these right?'),
     el('div', { class: 'confirm-summary' },
-      el('p', {}, el('strong', {}, lock.name || 'This lock'), ` locks ${appsText(lock.apps).toLowerCase()}.`),
+      el('p', {}, el('strong', {}, lock.name || 'This lock'), ` locks ${appsText(lock.apps).toLowerCase()}`,
+        lockDays(lock).length < 7 ? ` on ${daysSummary(lockDays(lock))} (other days they stay open).` : '.'),
       el('p', {}, lockedNow
         ? `They lock as soon as you tap Complete, and unlock once you finish ${left.length === 1 ? 'this goal' : 'these goals'}:`
-        : 'Your goals are done for now, so they stay open. When a goal starts over, they lock until you finish:'),
+        : !lockAppliesToday(lock)
+          ? 'Today isn’t one of its days, so they stay open. On its days, they’re locked until you finish:'
+          : 'Your goals are done for now, so they stay open. When a goal starts over, they lock until you finish:'),
       el('ul', {}, (lockedNow ? left : goals).map(t => el('li', {},
         el('strong', {}, t.name), ` · ${progressText(t, countThisPeriod(t))} ${(PERIOD_LABEL[t.reset] || '').toLowerCase()}`))),
       el('p', {}, relockText(lock) === 'Stays unlocked'
@@ -287,6 +311,8 @@ const canLockAtLimit = f => f.direction === 'decrease' && f.target > 0;
 const screenLimits = () => state.tallies.filter(t => t.screen && t.screenKey);
 // How many apps reached their own limit today ("each" limits), as the phone last reported.
 let screenReached = {};
+// Schedules iPhone refused for a limit (shown on its card, so a lock can't quietly not happen).
+let screenProblems = {};
 // The daily limit has the apps (or, for "each" limits, some of them) locked right now.
 const limitReached = t => (t.screenEach ? (screenReached[t.screenKey] || 0) > 0 : t.target > 0 && countThisPeriod(t) >= t.target);
 // Locked hours ("22:00" to "07:00" on the limit's days; they may run past midnight).
@@ -339,7 +365,8 @@ function renderLimits(box) {
       el('div', { class: 'lock-apps' }, [hasWindow(t) ? `Locked hours: ${windowText(t)}` : '', daysSummary(limitDays(t))].filter(Boolean).join(' · ')),
       t.target > 0 && !t.screenEach ? el('div', { class: 'limit-bar', role: 'img', 'aria-label': `${Math.round(used)} of ${t.target} minutes used today` },
         el('span', { style: `width:${Math.min(100, (used / t.target) * 100)}%` })) : null,
-      el('div', { class: 'lock-foot' }, foot)));
+      el('div', { class: 'lock-foot' }, foot),
+      screenProblems[t.screenKey] ? el('div', { class: 'lock-problem' }, `⚠ ${screenProblems[t.screenKey]}. Goalie tries again each time it opens.`) : null));
   }
   box.append(el('button', { type: 'button', class: 'submit-btn secondary', onclick: () => limitSheet(null) }, '+ NEW LIMIT'));
 }
@@ -573,8 +600,9 @@ function syncScreenGoals({ now = false } = {}) {
       from: hasWindow(t) ? t.screenFrom : null, to: hasWindow(t) ? t.screenTo : null, days: limitDays(t),
     }));
     try {
-      const { usage, reached } = await locksPlugin().screenGoals({ json: JSON.stringify(goals) });
+      const { usage, reached, problems } = await locksPlugin().screenGoals({ json: JSON.stringify(goals) });
       screenReached = reached || {};
+      screenProblems = problems || {};
       applyScreenUsage(usage || {});
     } catch (e) { console.warn('Goalie screen time:', e); }
   }, now ? 0 : 1000);

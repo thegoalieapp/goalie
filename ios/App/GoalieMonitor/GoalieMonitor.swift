@@ -13,9 +13,11 @@ import Foundation
 class GoalieMonitor: DeviceActivityMonitor {
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
-        if let key = ScreenStorage.key(ofWindow: activity) {
-            // Locked hours start: lock, if today is one of the limit's days.
-            if ScreenStorage.goals().first(where: { $0.key == key })?.appliesOn(Date()) ?? true {
+        if let (key, part) = ScreenStorage.key(ofWindow: activity) {
+            // Locked hours start: lock, if it's one of the limit's days. The after-midnight part ("b")
+            // belongs to the night before.
+            let day = part == "b" ? Date().addingTimeInterval(-86_400) : Date()
+            if ScreenStorage.goals().first(where: { $0.key == key })?.appliesOn(day) ?? true {
                 ScreenStorage.lockWindow(key)
             }
         } else if let key = ScreenStorage.key(of: activity) {
@@ -28,7 +30,10 @@ class GoalieMonitor: DeviceActivityMonitor {
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
-        if let key = ScreenStorage.key(ofWindow: activity) {
+        if let (key, part) = ScreenStorage.key(ofWindow: activity) {
+            // Hours that run past midnight stay locked from 11:59 PM into the morning part.
+            if part == "a", let window = ScreenStorage.goals().first(where: { $0.key == key })?.window,
+               window.start > window.end, window.end >= 15 { return }
             ScreenStorage.unlockWindow(key)
         }
     }

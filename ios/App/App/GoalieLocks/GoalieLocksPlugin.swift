@@ -117,13 +117,14 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         let center = DeviceActivityCenter()
         let keys = Set(goals.map(\.key))
         for gone in ScreenStorage.goals() where !keys.contains(gone.key) {
-            center.stopMonitoring([ScreenStorage.activity(gone.key), ScreenStorage.windowActivity(gone.key)])
+            center.stopMonitoring([ScreenStorage.activity(gone.key)] + ScreenStorage.windowActivities(gone.key))
             ScreenStorage.unlockApps(gone.key)
             ScreenStorage.unlockWindow(gone.key)
             LockShared.defaults.removeObject(forKey: "screenSig-\(gone.key)")
             LockShared.defaults.removeObject(forKey: "windowSig-\(gone.key)")
         }
         ScreenStorage.saveGoals(goals)
+        var problems: [String: String] = [:] // schedules iPhone refused, shown on the limit's card
         for goal in goals {
             guard let picked = ScreenStorage.selection(goal.key) else { continue }
             // Start (or restart) listening only when the apps or the limit changed: restarting
@@ -153,7 +154,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
                         repeats: true), events: events)
                     LockShared.defaults.set(sig, forKey: "screenSig-\(goal.key)")
                 } catch {
-                    // Not listening; the next call tries again.
+                    problems[goal.key] = "Time tracking couldn’t start (\(error.localizedDescription))" // tried again next time
                 }
             }
             if !goal.lock || goal.limit == 0 || !goal.appliesOn(Date()) {
@@ -165,7 +166,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             } else {
                 ScreenStorage.unlockApps(goal.key)
             }
-            Self.scheduleWindow(goal, picked: picked, center: center)
+            if let problem = Self.scheduleWindow(goal, picked: picked, center: center) { problems[goal.key] = problem }
         }
         var usage: [String: Any] = [:]
         for (key, days) in ScreenStorage.usage() {
@@ -174,34 +175,48 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         // How many apps reached their own limit today ("each" limits), for the cards in Goalie.
         var reached: [String: Any] = [:]
         for goal in goals where goal.each == true { reached[goal.key] = ScreenStorage.reachedToday(goal.key).count }
-        call.resolve(["usage": usage, "reached": reached])
+        call.resolve(["usage": usage, "reached": reached, "problems": problems])
     }
 
     /// Locked hours: iPhone wakes the re-locker when they start and end, every day (even when they
     /// run past midnight); and right now the apps are locked or not, whichever the clock says.
-    private static func scheduleWindow(_ goal: ScreenGoal, picked: FamilyActivitySelection, center: DeviceActivityCenter) {
-        let activity = ScreenStorage.windowActivity(goal.key)
+    /// Returns why iPhone wouldn't schedule them, if it wouldn't. Its schedules have to start and end
+    /// on the same day, so hours that run past midnight go in two parts: start to 11:59 PM, then
+    /// midnight to the end (a part under 15 minutes, iPhone's shortest, is left out).
+    private static func scheduleWindow(_ goal: ScreenGoal, picked: FamilyActivitySelection, center: DeviceActivityCenter) -> String? {
+        let all = ScreenStorage.windowActivities(goal.key)
         let sigKey = "windowSig-\(goal.key)"
         guard let window = goal.window else {
-            center.stopMonitoring([activity])
+            center.stopMonitoring(all)
             ScreenStorage.unlockWindow(goal.key)
             LockShared.defaults.removeObject(forKey: sigKey)
-            return
+            return nil
         }
-        let sig = "\(window.start)-\(window.end)"
-        if LockShared.defaults.string(forKey: sigKey) != sig || !center.activities.contains(activity) {
-            center.stopMonitoring([activity])
-            do {
-                try center.startMonitoring(activity, during: DeviceActivitySchedule(
-                    intervalStart: DateComponents(hour: window.start / 60, minute: window.start % 60),
-                    intervalEnd: DateComponents(hour: window.end / 60, minute: window.end % 60),
-                    repeats: true))
-                LockShared.defaults.set(sig, forKey: sigKey)
-            } catch {
-                // Not scheduled; the next call tries again. The lock below still follows the clock.
+        var parts: [(name: DeviceActivityName, start: Int, end: Int)] = []
+        if window.start < window.end {
+            parts.append((ScreenStorage.windowActivity(goal.key, part: "a"), window.start, window.end))
+        } else {
+            if 23 * 60 + 59 - window.start >= 15 { parts.append((ScreenStorage.windowActivity(goal.key, part: "a"), window.start, 23 * 60 + 59)) }
+            if window.end >= 15 { parts.append((ScreenStorage.windowActivity(goal.key, part: "b"), 0, window.end)) }
+        }
+        var problem: String?
+        let sig = "v2-\(window.start)-\(window.end)"
+        if LockShared.defaults.string(forKey: sigKey) != sig || parts.contains(where: { !center.activities.contains($0.name) }) {
+            center.stopMonitoring(all)
+            for part in parts {
+                do {
+                    try center.startMonitoring(part.name, during: DeviceActivitySchedule(
+                        intervalStart: DateComponents(hour: part.start / 60, minute: part.start % 60),
+                        intervalEnd: DateComponents(hour: part.end / 60, minute: part.end % 60),
+                        repeats: true))
+                } catch {
+                    problem = "Locked hours couldn’t be scheduled (\(error.localizedDescription))"
+                }
             }
+            if problem == nil { LockShared.defaults.set(sig, forKey: sigKey) }
         }
         if goal.inWindow() { ScreenStorage.lockWindow(goal.key) } else { ScreenStorage.unlockWindow(goal.key) }
+        return problem
     }
 
     /// "These apps reached this many minutes today", counting use from before Goalie started

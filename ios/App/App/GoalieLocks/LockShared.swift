@@ -30,6 +30,7 @@ struct LockConfig: Codable {
     var locked: Bool
     var relock: [String]        // the periods that re-lock it (day, week, month, year)
     var goals: [LockGoal]
+    var days: [Int]?            // the days it applies: 0 = Sunday … 6 = Saturday (none: every day)
 }
 
 enum LockStorage {
@@ -123,13 +124,18 @@ enum LockStorage {
         if parts.day == 1 { starting.insert("month") }
         if parts.day == 1 && parts.month == 1 { starting.insert("year") }
 
+        // Goals whose period starts today begin again; then each lock is on if today is one of its
+        // days and a goal is left (off days: open, whatever the goals say).
+        let weekday = (parts.weekday ?? 1) - 1
         var all = configs()
-        for index in all.indices where !Set(all[index].relock).isDisjoint(with: starting) {
-            all[index].locked = true
+        for index in all.indices {
             for goal in all[index].goals.indices where starting.contains(all[index].goals[goal].period) {
                 all[index].goals[goal].done = false
                 all[index].goals[goal].progress = all[index].goals[goal].resetProgress
             }
+            let days = all[index].days ?? []
+            let applies = days.isEmpty || days.contains(weekday)
+            all[index].locked = applies && all[index].goals.contains { !$0.done }
             apply(all[index])
         }
         saveConfigs(all)
@@ -258,10 +264,19 @@ enum ScreenStorage {
 
     /* Locked hours: their own activity and their own lock, so the daily-minutes lock and the
        locked hours never undo each other. */
-    static func windowActivity(_ key: String) -> DeviceActivityName { DeviceActivityName("goalie.window.\(key)") }
-    static func key(ofWindow activity: DeviceActivityName) -> String? {
+    /// iPhone's schedules have to start and end on the same day, so locked hours are scheduled in up
+    /// to two parts: "a" (start to 11:59 PM, or start to end on the same day) and "b" (midnight to the
+    /// end, for hours that run past midnight). Part "b" belongs to the day before.
+    static func windowActivity(_ key: String, part: String) -> DeviceActivityName { DeviceActivityName("goalie.window.\(key).\(part)") }
+    static func windowActivities(_ key: String) -> [DeviceActivityName] {
+        [windowActivity(key, part: "a"), windowActivity(key, part: "b"), DeviceActivityName("goalie.window.\(key)")] // (last: before parts)
+    }
+    static func key(ofWindow activity: DeviceActivityName) -> (key: String, part: String)? {
         let prefix = "goalie.window."
-        return activity.rawValue.hasPrefix(prefix) ? String(activity.rawValue.dropFirst(prefix.count)) : nil
+        guard activity.rawValue.hasPrefix(prefix) else { return nil }
+        let rest = String(activity.rawValue.dropFirst(prefix.count))
+        if rest.hasSuffix(".a") || rest.hasSuffix(".b") { return (String(rest.dropLast(2)), String(rest.suffix(1))) }
+        return (rest, "a")
     }
     private static func windowStore(_ key: String) -> ManagedSettingsStore {
         ManagedSettingsStore(named: ManagedSettingsStore.Name("window-\(key)"))

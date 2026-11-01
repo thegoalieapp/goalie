@@ -1884,3 +1884,5 @@ html[data-theme="dark"] .sheet .seg.pills button.on, html[data-theme="dark"] .sh
 .confirm-summary { display: flex; flex-direction: column; gap: 4px; }
 .confirm-summary p { margin: 4px 0; }
 .confirm-summary ul { margin: 2px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--navy); line-height: 1.45; }
+.lock-problem { font-size: 13px; font-weight: 600; color: #b42318; line-height: 1.35; }
+.lock-card.locked .lock-problem, html[data-theme="dark"] .lock-problem { color: #ffb4a8; }
