@@ -16,6 +16,7 @@
 const LOCKS_KEY = 'goalie.locks';
 const locksPlugin = () => window.Capacitor?.Plugins?.GoalieLocks;
 const locksUi = { auth: 'notDetermined', wasLocked: new Map() };
+try { if (localStorage.getItem('goalie.screenTimeOK')) locksUi.auth = 'approved'; } catch (e) { /* storage blocked */ }
 
 function readLocks() { try { return JSON.parse(localStorage.getItem(LOCKS_KEY) || '[]'); } catch (e) { return []; } }
 function writeLocks(list) { try { localStorage.setItem(LOCKS_KEY, JSON.stringify(list)); } catch (e) { /* full */ } }
@@ -114,11 +115,19 @@ function relockText(lock) {
   return 'Stays unlocked';
 }
 
+// The screen appears right away from what's remembered; iPhone's answer about Screen Time access
+// (which can take a moment) is checked after, and the screen only redraws if it turns out different.
 async function renderLocks() {
-  const box = $('#locks-body');
-  box.innerHTML = '';
+  drawLocks();
+  const before = locksUi.auth;
   try { locksUi.auth = (await locksPlugin().authorization()).status; } catch (e) { locksUi.auth = 'unavailable'; }
   rememberScreenTime();
+  if (locksUi.auth !== before) drawLocks();
+}
+
+function drawLocks() {
+  const box = $('#locks-body');
+  box.innerHTML = '';
   if (locksUi.auth !== 'approved') {
     box.append(el('div', { class: 'locks-intro' },
       el('h3', {}, 'Lock apps until your goals are done'),
