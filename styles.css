@@ -847,6 +847,7 @@ button {
 
 /* ---------- Personalization ---------- */
 .field-label.first { margin-top: 18px; }
+.label-icon { width: 20px; height: 20px; vertical-align: -3px; margin-right: 8px; }
 .modal-head .stats-title {
   font-size: 30px;
   line-height: 1.15;
