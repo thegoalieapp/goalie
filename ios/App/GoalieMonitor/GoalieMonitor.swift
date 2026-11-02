@@ -18,11 +18,13 @@ class GoalieMonitor: DeviceActivityMonitor {
             // belongs to the night before.
             let day = part == "b" ? Date().addingTimeInterval(-86_400) : Date()
             if ScreenStorage.goals().first(where: { $0.key == key })?.appliesOn(day) ?? true {
-                ScreenStorage.lockWindow(key)
+                ScreenStorage.setWindowLocked(key, true)
+                Shield.refresh()
             }
         } else if let key = ScreenStorage.key(of: activity) {
             ScreenStorage.clearReached(key) // a new day: every app back under its limit
-            ScreenStorage.unlockApps(key)
+            ScreenStorage.setLimitLocked(key, false)
+            Shield.refresh()
         } else {
             LockStorage.relockForNewPeriods()
         }
@@ -34,7 +36,8 @@ class GoalieMonitor: DeviceActivityMonitor {
             // Hours that run past midnight stay locked from 11:59 PM into the morning part.
             if part == "a", let window = ScreenStorage.goals().first(where: { $0.key == key })?.window,
                window.start > window.end, window.end >= 15 { return }
-            ScreenStorage.unlockWindow(key)
+            ScreenStorage.setWindowLocked(key, false)
+            Shield.refresh()
         }
     }
 
@@ -46,14 +49,15 @@ class GoalieMonitor: DeviceActivityMonitor {
         if name.hasPrefix("i"), let item = Int(name.dropFirst()) { // one app reached its own limit
             if let goal, goal.lock, goal.appliesOn(Date()) {
                 ScreenStorage.markReached(key, item: item)
-                ScreenStorage.lockReached(key)
+                Shield.refresh()
             }
             return
         }
         guard let minutes = Int(name.dropFirst()) else { return } // "m<minutes>": all the apps together
         ScreenStorage.record(key, minutes: minutes)
         if let goal, goal.lock, goal.each != true, goal.limit > 0, minutes >= goal.limit, goal.appliesOn(Date()) {
-            ScreenStorage.lockApps(key)
+            ScreenStorage.setLimitLocked(key, true)
+            Shield.refresh()
         }
     }
 }

@@ -86,15 +86,14 @@ function syncLocks({ now = false } = {}) {
 }
 
 /* ---------- Locks screen ---------- */
-// Screen Time access, once allowed, is remembered: right after Goalie starts, iPhone can still say
-// "not decided yet" for a moment, and that mustn't bring back the Allow button. (Turned off in
-// Settings, it says "denied", which still shows.)
+// Screen Time access, once allowed, is remembered, so the App Locks screen opens straight away
+// without asking. iPhone's real answer (which waits out the "not decided yet" it gives for a moment
+// after Goalie starts) comes after: if access was turned off, the Allow button comes back.
 const SCREEN_TIME_OK = 'goalie.screenTimeOK';
 function rememberScreenTime() {
   try {
     if (locksUi.auth === 'approved') localStorage.setItem(SCREEN_TIME_OK, '1');
-    else if (locksUi.auth === 'denied') localStorage.removeItem(SCREEN_TIME_OK);
-    else if (locksUi.auth === 'notDetermined' && localStorage.getItem(SCREEN_TIME_OK)) locksUi.auth = 'approved';
+    else if (locksUi.auth !== 'unavailable') localStorage.removeItem(SCREEN_TIME_OK);
   } catch (e) { /* storage blocked */ }
 }
 function appsText(apps) {
@@ -132,9 +131,10 @@ function drawLocks() {
     box.append(el('div', { class: 'locks-intro' },
       el('h3', {}, 'Lock apps until your goals are done'),
       el('p', {}, 'Pick apps like social media and the goals that unlock them. The apps stay locked until those goals are done, and lock again when the goals start over (tomorrow for daily goals, next week for weekly ones).'),
+      el('button', { type: 'button', class: 'submit-btn', onclick: allowScreenTime }, 'Allow Screen Time access'),
       locksUi.auth === 'denied'
-        ? el('p', { class: 'note' }, 'Screen Time access is off for Goalie. Turn it on in iPhone Settings → Screen Time → Apps with Screen Time Access.')
-        : el('button', { type: 'button', class: 'submit-btn', onclick: allowScreenTime }, 'Allow Screen Time access'),
+        ? el('p', { class: 'note' }, 'Screen Time access is off for Goalie. If the button doesn’t ask, turn it on in iPhone Settings → Screen Time → Apps with Screen Time Access.')
+        : null,
       el('p', { class: 'note' }, 'Goalie never sees which apps you pick or how you use them. That stays on your phone with Apple.')));
     return;
   }
@@ -163,6 +163,7 @@ function drawLocks() {
 async function allowScreenTime() {
   try { locksUi.auth = (await locksPlugin().requestAuthorization()).status; } catch (e) { /* stays as it was */ }
   rememberScreenTime();
+  if (locksUi.auth === 'approved') { syncLocks({ now: true }); syncScreenGoals({ now: true }); } // turned back on: everything restarts
   renderLocks();
 }
 

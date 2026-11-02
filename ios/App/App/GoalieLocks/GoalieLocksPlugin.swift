@@ -31,10 +31,10 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
     private static let daily = DeviceActivityName("goalie.daily")
 
     /// Right after Goalie starts, iPhone reports "not decided yet" for a moment before it has looked up
-    /// the real answer, so give it up to 2 seconds to settle.
+    /// the real answer, so give it up to 4 seconds to settle.
     @objc func authorization(_ call: CAPPluginCall) {
         Task { @MainActor in
-            for _ in 0..<20 where AuthorizationCenter.shared.authorizationStatus == .notDetermined {
+            for _ in 0..<40 where AuthorizationCenter.shared.authorizationStatus == .notDetermined {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
             call.resolve(["status": Self.status()])
@@ -47,6 +47,10 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
                 try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
             } catch {
                 // Declined or unavailable: the status below says which.
+            }
+            if AuthorizationCenter.shared.authorizationStatus == .approved {
+                Shield.forget() // back on after being off: put every lock back
+                Shield.refresh()
             }
             call.resolve(["status": Self.status()])
         }
@@ -66,7 +70,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
                     chosen.webDomainTokens.formUnion(before.webDomainTokens)
                 }
                 LockStorage.saveSelection(chosen, for: id)
-                if let lock = LockStorage.configs().first(where: { $0.id == id }) { LockStorage.apply(lock) }
+                Shield.refresh()
                 if id.hasPrefix("screen-") { // a screen-time goal's apps changed: listen again
                     LockShared.defaults.removeObject(forKey: "screenSig-\(id.dropFirst("screen-".count))")
                 }
@@ -91,17 +95,17 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         LockStorage.weekStart = payload.weekStart
         LockStorage.saveConfigs(payload.locks)
-        payload.locks.forEach(LockStorage.apply)
+        Shield.refresh()
         Self.monitorNewDays(payload.locks.isEmpty == false)
         call.resolve()
     }
 
     @objc func remove(_ call: CAPPluginCall) {
         guard let id = call.getString("id") else { return call.reject("Missing lock id") }
-        LockStorage.clear(id)
         LockStorage.removeSelection(for: id)
         let rest = LockStorage.configs().filter { $0.id != id }
         LockStorage.saveConfigs(rest)
+        Shield.refresh()
         Self.monitorNewDays(!rest.isEmpty)
         call.resolve()
     }
@@ -118,8 +122,8 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         let keys = Set(goals.map(\.key))
         for gone in ScreenStorage.goals() where !keys.contains(gone.key) {
             center.stopMonitoring([ScreenStorage.activity(gone.key)] + ScreenStorage.windowActivities(gone.key))
-            ScreenStorage.unlockApps(gone.key)
-            ScreenStorage.unlockWindow(gone.key)
+            ScreenStorage.setLimitLocked(gone.key, false)
+            ScreenStorage.setWindowLocked(gone.key, false)
             LockShared.defaults.removeObject(forKey: "screenSig-\(gone.key)")
             LockShared.defaults.removeObject(forKey: "windowSig-\(gone.key)")
         }
@@ -157,17 +161,13 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
                     problems[goal.key] = "Time tracking couldn’t start (\(error.localizedDescription))" // tried again next time
                 }
             }
-            if !goal.lock || goal.limit == 0 || !goal.appliesOn(Date()) {
-                ScreenStorage.unlockApps(goal.key)
-            } else if each {
-                ScreenStorage.lockReached(goal.key) // just the apps at their own limit (none: nothing locked)
-            } else if ScreenStorage.minutesToday(goal.key) >= goal.limit {
-                ScreenStorage.lockApps(goal.key)
-            } else {
-                ScreenStorage.unlockApps(goal.key)
-            }
+            // Combined limit reached today: locked until midnight. ("Each" limits lock just the apps
+            // at their own limit; Shield.refresh() reads those.)
+            ScreenStorage.setLimitLocked(goal.key, goal.lock && goal.limit > 0 && !each && goal.appliesOn(Date())
+                && ScreenStorage.minutesToday(goal.key) >= goal.limit)
             if let problem = Self.scheduleWindow(goal, picked: picked, center: center) { problems[goal.key] = problem }
         }
+        Shield.refresh() // everything above, in one go (only told to iPhone if something changed)
         var usage: [String: Any] = [:]
         for (key, days) in ScreenStorage.usage() {
             usage[key] = days.mapValues { ["minutes": $0.minutes, "at": $0.at] }
@@ -188,7 +188,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         let sigKey = "windowSig-\(goal.key)"
         guard let window = goal.window else {
             center.stopMonitoring(all)
-            ScreenStorage.unlockWindow(goal.key)
+            ScreenStorage.setWindowLocked(goal.key, false)
             LockShared.defaults.removeObject(forKey: sigKey)
             return nil
         }
@@ -215,7 +215,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             if problem == nil { LockShared.defaults.set(sig, forKey: sigKey) }
         }
-        if goal.inWindow() { ScreenStorage.lockWindow(goal.key) } else { ScreenStorage.unlockWindow(goal.key) }
+        ScreenStorage.setWindowLocked(goal.key, goal.inWindow())
         return problem
     }
 
