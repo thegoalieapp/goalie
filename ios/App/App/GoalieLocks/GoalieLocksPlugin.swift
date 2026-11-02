@@ -3,6 +3,7 @@
 //   authorization()          → { status }   approved / denied / notDetermined
 //   requestAuthorization()   → { status }   "Allow Goalie to use Screen Time?"
 //   pickApps({ id, locked }) → { apps, categories, sites, cancelled }   Apple's app picker
+//   showApps({ id })         a list of what's picked, with names and icons (drawn by iPhone)
 //   update({ json })         saves every lock (from Goalie) and locks or unlocks its apps
 //   remove({ id })           deletes a lock and unlocks its apps
 //
@@ -23,6 +24,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "authorization", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestAuthorization", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pickApps", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "showApps", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "screenGoals", returnType: CAPPluginReturnPromise)
@@ -85,6 +87,21 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             let controller = UIHostingController(rootView: picker)
             host = controller
             self.bridge?.viewController?.present(controller, animated: true)
+        }
+    }
+
+    /// The picked apps, categories and websites, by name. Apple's labels draw the names and icons;
+    /// Goalie itself still never learns which apps they are.
+    @objc func showApps(_ call: CAPPluginCall) {
+        guard let id = call.getString("id") else { return call.reject("Missing lock id") }
+        DispatchQueue.main.async {
+            let picked = LockStorage.selection(id) ?? FamilyActivitySelection()
+            var host: UIViewController?
+            let list = PickedAppsView(selection: picked, onDone: { host?.dismiss(animated: true) })
+            let controller = UIHostingController(rootView: list)
+            host = controller
+            self.bridge?.viewController?.present(controller, animated: true)
+            call.resolve()
         }
     }
 
@@ -291,6 +308,39 @@ private struct AppPickerView: View {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
                     ToolbarItem(placement: .confirmationAction) { Button("Done") { onDone(selection) } }
                 }
+        }
+    }
+}
+
+/// What a lock or limit has picked: categories, apps and websites.
+private struct PickedAppsView: View {
+    let selection: FamilyActivitySelection
+    let onDone: () -> Void
+
+    var body: some View {
+        NavigationView {
+            List {
+                if !selection.categoryTokens.isEmpty {
+                    Section(header: Text("Categories")) {
+                        ForEach(Array(selection.categoryTokens), id: \.self) { token in Label(token) }
+                    }
+                }
+                if !selection.applicationTokens.isEmpty {
+                    Section(header: Text("Apps")) {
+                        ForEach(Array(selection.applicationTokens), id: \.self) { token in Label(token) }
+                    }
+                }
+                if !selection.webDomainTokens.isEmpty {
+                    Section(header: Text("Websites")) {
+                        ForEach(Array(selection.webDomainTokens), id: \.self) { token in Label(token) }
+                    }
+                }
+            }
+            .navigationTitle("Locked apps")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) }
+            }
         }
     }
 }

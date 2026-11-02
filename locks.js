@@ -105,6 +105,15 @@ function appsText(apps) {
   return parts.length ? parts.join(', ') : 'No apps chosen yet';
 }
 
+// "See which apps": Apple's own list of what a lock or limit has picked, with names and icons.
+// Goalie itself is never told which apps they are, so the list comes up from iPhone, not here.
+function seeApps(id, picked) {
+  return el('button', { type: 'button', class: 'see-apps', onclick: async () => {
+    if (!picked()) { toast('No apps chosen yet'); return; }
+    try { await locksPlugin().showApps({ id }); } catch (e) { toast('Couldn’t show the apps'); }
+  } }, 'See which apps ›');
+}
+
 function relockText(lock) {
   const periods = new Set(lockGoals(lock).map(lockPeriod));
   if (periods.has('day')) return 'Locks again tomorrow';
@@ -244,6 +253,7 @@ function lockSheet(existing, draft = null) {
     nameInput,
     el('div', { class: 'sheet-label' }, 'APPS TO LOCK'),
     appsLine,
+    seeApps(lock.id, () => lock.apps),
     el('button', { type: 'button', class: 'sheet-btn', onclick: chooseApps }, lock.apps ? (locked ? 'Add apps' : 'Change apps') : 'Choose apps'),
     el('div', { class: 'sheet-label' }, 'GOALS THAT UNLOCK IT'),
     goalList,
@@ -277,6 +287,7 @@ function confirmNewLock(lock) {
     el('div', { class: 'confirm-summary' },
       el('p', {}, el('strong', {}, lock.name || 'This lock'), ` locks ${appsText(lock.apps).toLowerCase()}`,
         lockDays(lock).length < 7 ? ` on ${daysSummary(lockDays(lock))} (other days they stay open).` : '.'),
+      seeApps(lock.id, () => lock.apps),
       el('p', {}, lockedNow
         ? `They lock as soon as you tap Complete, and unlock once you finish ${left.length === 1 ? 'this goal' : 'these goals'}:`
         : !lockAppliesToday(lock)
@@ -580,6 +591,7 @@ function limitSheet(existing, draft = null) {
     nameInput,
     el('div', { class: 'sheet-label' }, 'APPS'),
     appsLine,
+    seeApps(`screen-${key}`, () => apps),
     el('button', { type: 'button', class: 'sheet-btn', onclick: chooseApps }, apps ? (locked ? 'Add apps' : 'Change apps') : 'Choose apps'),
     el('div', { class: 'sheet-label' }, 'DAILY LIMIT'),
     onOff(dailyOn, on => { dailyOn = on; dailyBox.classList.toggle('hidden', !on); if (on) buildDaily(); }, false),
@@ -635,6 +647,7 @@ function confirmNewLimit(c) {
     el('h3', {}, 'Are these right?'),
     el('div', { class: 'confirm-summary' },
       el('p', {}, el('strong', {}, c.name), ` limits ${what}.`),
+      seeApps(`screen-${c.key}`, () => c.apps),
       el('ul', {}, lines.map(l => el('li', {}, l))),
       el('p', { class: 'note' }, 'Once locked, a limit can only get stricter until it unlocks: the daily limit can be lowered, apps and days added, and locked hours that are on can’t be changed.')),
     el('button', { class: 'sheet-btn primary', onclick: () => commitLimit(null, c) }, 'Complete'),
