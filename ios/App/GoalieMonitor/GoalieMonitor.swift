@@ -13,12 +13,12 @@ import Foundation
 class GoalieMonitor: DeviceActivityMonitor {
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
-        if let (key, part) = ScreenStorage.key(ofWindow: activity) {
-            // Locked hours start: lock, if it's one of the limit's days. The after-midnight part ("b")
-            // belongs to the night before.
+        if let (key, n, part) = ScreenStorage.key(ofWindow: activity) {
+            // One of the locked-hours times starts: lock, if it's one of that time's days. The
+            // after-midnight part ("b") belongs to the night before.
             let day = part == "b" ? Date().addingTimeInterval(-86_400) : Date()
-            if ScreenStorage.goals().first(where: { $0.key == key })?.appliesOn(day) ?? true {
-                ScreenStorage.setWindowLocked(key, true)
+            if Self.time(key, n)?.appliesOn(day) ?? true {
+                ScreenStorage.setWindowLocked(key, time: n, true)
                 Shield.refresh()
             }
         } else if let key = ScreenStorage.key(of: activity) {
@@ -32,13 +32,18 @@ class GoalieMonitor: DeviceActivityMonitor {
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
-        if let (key, part) = ScreenStorage.key(ofWindow: activity) {
+        if let (key, n, part) = ScreenStorage.key(ofWindow: activity) {
             // Hours that run past midnight stay locked from 11:59 PM into the morning part.
-            if part == "a", let window = ScreenStorage.goals().first(where: { $0.key == key })?.window,
-               window.start > window.end, window.end >= 15 { return }
-            ScreenStorage.setWindowLocked(key, false)
+            if part == "a", let window = Self.time(key, n)?.window, window.start > window.end, window.end >= 15 { return }
+            ScreenStorage.setWindowLocked(key, time: n, false)
             Shield.refresh()
         }
+    }
+
+    /// A limit's locked-hours time, by its place.
+    private static func time(_ key: String, _ n: Int) -> ScreenHours? {
+        guard let times = ScreenStorage.goals().first(where: { $0.key == key })?.times, n < times.count else { return nil }
+        return times[n]
     }
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {

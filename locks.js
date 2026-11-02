@@ -203,6 +203,9 @@ function lockSheet(existing, draft = null) {
     return row;
   }) : el('p', { class: 'note' }, 'Add a goal with a target (or a check-off goal) first.'));
 
+  if (dailyOn) buildDaily();
+  if (hoursOn) buildHours();
+
   const chooseApps = async () => {
     try {
       const r = await locksPlugin().pickApps({ id: lock.id, locked });
@@ -325,22 +328,37 @@ let screenReached = {};
 let screenProblems = {};
 // The daily limit has the apps (or, for "each" limits, some of them) locked right now.
 const limitReached = t => (t.screenEach ? (screenReached[t.screenKey] || 0) > 0 : t.target > 0 && countThisPeriod(t) >= t.target);
-// Locked hours ("22:00" to "07:00" on the limit's days; they may run past midnight).
+// Locked hours: one or more times ("22:00" to "07:00"), each on its own days; they may run past
+// midnight. (Limits from before several times were possible have screenFrom/screenTo on the
+// limit's days.)
+const MAX_TIMES = 4; // iPhone only lets an app run so many schedules at once
 const clockMinutes = hhmm => { const [h, m] = (hhmm || '').split(':').map(Number); return h * 60 + m; };
-const hasWindow = t => !!(t.screenFrom && t.screenTo && t.screenFrom !== t.screenTo);
+const realTime = h => !!(h && h.from && h.to && h.from !== h.to);
+function limitHours(t) {
+  if (Array.isArray(t.screenHours)) return t.screenHours.filter(realTime);
+  return realTime({ from: t.screenFrom, to: t.screenTo }) ? [{ from: t.screenFrom, to: t.screenTo, days: limitDays(t) }] : [];
+}
+const hasWindow = t => limitHours(t).length > 0;
 // The days a limit applies (Sun–Sat picked in the sheet; it's also the goal card's measured days).
-const limitDays = t => (Array.isArray(t.days) && t.days.length ? t.days : [0, 1, 2, 3, 4, 5, 6]);
-const appliesOn = (t, date) => limitDays(t).includes(date.getDay());
+const limitDays = t => (Array.isArray(t.days) && t.days.length ? t.days : ALL_DAYS);
+const timeDays = h => (Array.isArray(h.days) && h.days.length ? h.days : ALL_DAYS);
 // Locked hours that run past midnight (10 PM to 7 AM) belong to the day they start.
-function inWindowNow(t) {
-  if (!hasWindow(t)) return false;
-  const d = new Date(), now = d.getHours() * 60 + d.getMinutes(), start = clockMinutes(t.screenFrom), end = clockMinutes(t.screenTo);
-  if (start < end) return now >= start && now < end && appliesOn(t, d);
-  if (now >= start) return appliesOn(t, d);
-  if (now < end) return appliesOn(t, new Date(d.getTime() - DAY_MS));
+function timeActive(h, d = new Date()) {
+  const now = d.getHours() * 60 + d.getMinutes(), start = clockMinutes(h.from), end = clockMinutes(h.to);
+  const on = date => timeDays(h).includes(date.getDay());
+  if (start < end) return now >= start && now < end && on(d);
+  if (now >= start) return on(d);
+  if (now < end) return on(new Date(d.getTime() - DAY_MS));
   return false;
 }
-const windowText = t => `${fmtTime(t.screenFrom)} to ${fmtTime(t.screenTo)}`;
+// The locked-hours time that has the apps locked right now (the one ending last), if any.
+function activeTime(t) {
+  const ends = h => (clockMinutes(h.to) - new Date().getHours() * 60 - new Date().getMinutes() + 1440) % 1440;
+  return limitHours(t).filter(h => timeActive(h)).sort((a, b) => ends(b) - ends(a))[0] || null;
+}
+const inWindowNow = t => !!activeTime(t);
+const timeText = h => `${fmtTime(h.from)} to ${fmtTime(h.to)}`;
+const sameTime = (a, b) => a.from === b.from && a.to === b.to;
 const hhmmOf = ([h, m]) => `${pad2(h)}:${pad2(m)}`;
 const dateAt = hhmm => { const d = new Date(); d.setHours(...hhmm.split(':').map(Number), 0, 0); return d; };
 
@@ -360,9 +378,9 @@ function renderLimits(box) {
   const limits = screenLimits();
   if (!limits.length) box.append(el('p', { class: 'note locks-empty' }, 'Limit apps like Instagram to a number of minutes a day, lock them during set hours (like 10 PM to 7 AM), or both.'));
   for (const t of limits) {
-    const used = countThisPeriod(t), over = limitReached(t), inHours = inWindowNow(t);
+    const used = countThisPeriod(t), over = limitReached(t), active = activeTime(t), inHours = !!active;
     const hit = screenReached[t.screenKey] || 0;
-    const foot = inHours ? `Locked until ${fmtTime(t.screenTo)}`
+    const foot = inHours ? `Locked until ${fmtTime(active.to)}`
       : t.screenEach && t.target > 0 ? (hit ? `${hit} app${hit === 1 ? '' : 's'} at the limit · locked until midnight` : `${num(t, t.target)} for each app · ${num(t, used)} used today in all`)
       : over ? `${num(t, used)} of ${num(t, t.target)} today · locked until midnight`
         : t.target > 0 ? `${num(t, used)} of ${num(t, t.target)} today · ${num(t, t.target - used)} left`
@@ -372,7 +390,8 @@ function renderLimits(box) {
         el('strong', {}, t.name),
         el('span', { class: 'lock-state' }, over || inHours ? 'LOCKED' : 'OPEN')),
       el('div', { class: 'lock-apps' }, appsText(t.screenApps)),
-      el('div', { class: 'lock-apps' }, [hasWindow(t) ? `Locked hours: ${windowText(t)}` : '', daysSummary(limitDays(t))].filter(Boolean).join(' · ')),
+      t.target > 0 ? el('div', { class: 'lock-apps' }, `Daily limit: ${daysSummary(limitDays(t))}`) : null,
+      limitHours(t).map(h => el('div', { class: 'lock-apps' }, `Locked ${timeText(h)} · ${daysSummary(timeDays(h))}`)),
       t.target > 0 && !t.screenEach ? el('div', { class: 'limit-bar', role: 'img', 'aria-label': `${Math.round(used)} of ${t.target} minutes used today` },
         el('span', { style: `width:${Math.min(100, (used / t.target) * 100)}%` })) : null,
       el('div', { class: 'lock-foot' }, foot),
@@ -400,13 +419,29 @@ function durationWheels(total) {
   };
 }
 
+// Sun–Sat buttons that add and remove days in a Set (days in keep can't be removed: says why).
+function dayButtons(days, keep, why) {
+  return el('div', { class: 'days multi limit-days' }, ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((label, d) => {
+    const b = el('button', { type: 'button', class: days.has(d) ? 'on' : '', 'aria-pressed': String(days.has(d)) }, label);
+    b.addEventListener('click', () => {
+      if (days.has(d) && keep.has(d)) { toast(why); return; }
+      if (days.has(d)) days.delete(d); else days.add(d);
+      b.classList.toggle('on', days.has(d));
+      b.setAttribute('aria-pressed', String(days.has(d)));
+    });
+    return b;
+  }));
+}
+const onDays = days => (daysSummary(days) === 'Sun–Sat' ? 'every day' : daysSummary(days));
+
 // New limit (null) or change one. No early unlocks: once the daily limit is reached it can only go
 // down; during the locked hours they can't be changed or turned off; and while either has the apps
 // locked, apps and days can only be added and the limit can't be deleted. A new limit shows what it
 // will do before it's turned on (draft: its choices, coming back from that step).
 function limitSheet(existing, draft = null) {
   const over = existing ? limitReached(existing) : false;
-  const inHours = existing ? inWindowNow(existing) : false;
+  const active = existing ? activeTime(existing) : null, inHours = !!active;
+  const activeNow = existing ? limitHours(existing).filter(h => timeActive(h)) : []; // these can't change yet
   const locked = over || inHours;
   const key = draft?.key || existing?.screenKey || uid();
   let apps = draft ? draft.apps : existing?.screenApps || null;
@@ -414,15 +449,16 @@ function limitSheet(existing, draft = null) {
   let each = draft ? draft.each : !!existing?.screenEach;
   let hoursOn = draft ? draft.hoursOn : existing ? hasWindow(existing) : false;
   const startMinutes = draft?.minutes || existing?.target || 30;
-  const startFrom = draft?.from || existing?.screenFrom || '22:00', startTo = draft?.to || existing?.screenTo || '07:00';
+  const newTime = () => ({ from: '22:00', to: '07:00', days: ALL_DAYS });
+  const startTimes = draft?.hours?.length ? draft.hours : existing && hasWindow(existing) ? limitHours(existing) : [newTime()];
   const nameInput = el('input', { class: 'text-input full', type: 'text', maxlength: '30', placeholder: 'e.g. Instagram', value: draft?.name ?? existing?.name ?? '' });
   const appsLine = el('div', { class: 'lock-apps' }, appsText(apps));
 
   // Wheels go in when their part is switched on: a wheel reads its value from where it's scrolled
   // to, and a hidden one never scrolls into place.
   const dailyBox = el('div', { class: dailyOn ? '' : 'hidden' });
-  const hoursBox = el('div', { class: `${hoursOn ? '' : 'hidden'}${inHours ? ' fixed' : ''}` });
-  let amount = null, fromWheels = null, toWheels = null;
+  const hoursBox = el('div', { class: hoursOn ? '' : 'hidden' });
+  let amount = null, times = null; // times: each locked-hours time in the sheet, once built
   const eachSeg = el('div', { class: 'seg pills' },
     ...[['combined', 'COMBINED'], ['each', 'EACH APP']].map(([v, label]) => {
       const b = el('button', { type: 'button', 'data-v': v, class: (v === 'each') === each ? 'on' : '' }, label);
@@ -439,17 +475,49 @@ function limitSheet(existing, draft = null) {
   const buildDaily = () => {
     if (amount) return;
     amount = durationWheels(startMinutes);
-    dailyBox.append(amount.node, eachSeg, eachNote);
+    dailyBox.append(amount.node, eachSeg, eachNote, el('div', { class: 'sheet-label' }, 'DAYS'), daysRow);
+  };
+  // Locked hours: one or more times, each with its own days ("+ Add another time"). A time that has
+  // the apps locked right now can't be changed or removed until it ends (days can be added).
+  const addTimeBtn = el('button', { type: 'button', class: 'sheet-btn', onclick: () => addTime(newTime()) }, '+ Add another time');
+  const numberTimes = () => {
+    times.forEach((t, i) => {
+      t.title.textContent = times.length > 1 ? `TIME ${i + 1}` : 'TIME';
+      t.remove.classList.toggle('hidden', times.length === 1);
+    });
+    addTimeBtn.classList.toggle('hidden', times.length >= MAX_TIMES);
+  };
+  const addTime = h => {
+    const fixed = activeNow.some(a => sameTime(a, h));
+    const fromWheels = timeWheels(dateAt(h.from), { compact: true }), toWheels = timeWheels(dateAt(h.to), { compact: true });
+    const picked = new Set(timeDays(h));
+    const entry = {
+      title: el('span', {}, 'TIME'),
+      remove: el('button', { type: 'button', class: 'time-remove', onclick: () => {
+        if (fixed) { toast(`Locked until ${fmtTime(h.to)}: this time can’t be removed until then`); return; }
+        times = times.filter(x => x !== entry);
+        entry.node.remove();
+        numberTimes();
+      } }, 'Remove'),
+      get: () => ({ from: hhmmOf(fromWheels.get()), to: hhmmOf(toWheels.get()), days: [...picked].sort((a, b) => a - b) }),
+    };
+    entry.node = el('div', { class: 'locked-time' },
+      el('div', { class: 'sheet-label time-head' }, entry.title, entry.remove),
+      el('div', { class: fixed ? 'fixed' : '' },
+        el('div', { class: 'sheet-label' }, 'FROM'), fromWheels.node,
+        el('div', { class: 'sheet-label' }, 'TO'), toWheels.node),
+      el('div', { class: 'sheet-label' }, 'DAYS'),
+      dayButtons(picked, new Set(fixed ? timeDays(h) : []), 'Locked now: days can be added, not removed'));
+    times.push(entry);
+    addTimeBtn.before(entry.node);
+    numberTimes();
   };
   const buildHours = () => {
-    if (fromWheels) return;
-    fromWheels = timeWheels(dateAt(startFrom), { compact: true });
-    toWheels = timeWheels(dateAt(startTo), { compact: true });
-    hoursBox.append(el('div', { class: 'sheet-label' }, 'FROM'), fromWheels.node, el('div', { class: 'sheet-label' }, 'TO'), toWheels.node);
+    if (times) return;
+    times = [];
+    hoursBox.append(addTimeBtn);
+    startTimes.forEach(addTime);
   };
-  if (dailyOn) buildDaily();
-  if (hoursOn) buildHours();
-
   const onOff = (on, set, fixed) => {
     const seg = el('div', { class: `seg pills${fixed ? ' fixed' : ''}` },
       el('button', { type: 'button', 'data-v': 'off', class: on ? '' : 'on' }, 'OFF'),
@@ -462,19 +530,12 @@ function limitSheet(existing, draft = null) {
     return seg;
   };
 
-  // Sun–Sat: the days the limit applies. While it's locking apps, days can be added, not removed.
-  const days = new Set(draft ? draft.days : existing ? limitDays(existing) : [0, 1, 2, 3, 4, 5, 6]);
-  const keepDays = new Set(locked ? limitDays(existing) : []);
-  const daysRow = el('div', { class: 'days multi limit-days' }, ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((label, d) => {
-    const b = el('button', { type: 'button', class: days.has(d) ? 'on' : '', 'aria-pressed': String(days.has(d)) }, label);
-    b.addEventListener('click', () => {
-      if (days.has(d) && keepDays.has(d)) { toast('Locked now: days can be added, not removed'); return; }
-      if (days.has(d)) days.delete(d); else days.add(d);
-      b.classList.toggle('on', days.has(d));
-      b.setAttribute('aria-pressed', String(days.has(d)));
-    });
-    return b;
-  }));
+  // Sun–Sat: the days the daily limit applies. Once reached today, days can be added, not removed.
+  const days = new Set(draft ? draft.days : existing ? limitDays(existing) : ALL_DAYS);
+  const daysRow = dayButtons(days, new Set(over ? limitDays(existing) : []), 'Limit reached today: days can be added, not removed');
+
+  if (dailyOn) buildDaily();
+  if (hoursOn) buildHours();
 
   const chooseApps = async () => {
     try {
@@ -486,23 +547,24 @@ function limitSheet(existing, draft = null) {
   const choices = () => ({
     key, name: nameInput.value.trim(), apps, dailyOn, each, hoursOn,
     minutes: amount ? amount.get() : startMinutes,
-    from: fromWheels ? hhmmOf(fromWheels.get()) : startFrom, to: toWheels ? hhmmOf(toWheels.get()) : startTo,
-    days: [...days].sort((a, b) => a - b),
+    hours: times ? times.map(t => t.get()) : startTimes,
+    days: [...days].sort((a, b) => a - b), // the daily limit's days
   });
   const saveLimit = () => {
     const c = choices();
     if (!c.name) { toast('Give the limit a name'); return; }
     if (!c.apps) { toast('Choose at least one app'); return; }
     if (!c.dailyOn && !c.hoursOn) { toast('Turn on a daily limit, locked hours, or both'); return; }
-    if (!c.days.length) { toast('Pick at least one day'); return; }
+    if (c.dailyOn && !c.days.length) { toast('Pick at least one day for the daily limit'); return; }
     if (c.dailyOn && c.minutes < 5) { toast('Set a daily limit of at least 5 minutes'); return; }
-    if (c.hoursOn && (clockMinutes(c.to) - clockMinutes(c.from) + 1440) % 1440 < 15) { toast('Locked hours need to be at least 15 minutes'); return; }
+    if (c.hoursOn && c.hours.some(h => !h.days.length)) { toast('Pick at least one day for each time'); return; }
+    if (c.hoursOn && c.hours.some(h => (clockMinutes(h.to) - clockMinutes(h.from) + 1440) % 1440 < 15)) { toast('Locked hours need to be at least 15 minutes'); return; }
     if (over && (!c.dailyOn || c.minutes > existing.target)) { toast('Limit reached today: it can be lowered, not raised or turned off, until midnight'); return; }
-    if (inHours && (!c.hoursOn || c.from !== existing.screenFrom || c.to !== existing.screenTo)) { toast(`Locked hours can’t be changed until ${fmtTime(existing.screenTo)}`); return; }
+    if (inHours && (!c.hoursOn || activeNow.some(a => !c.hours.some(h => sameTime(h, a))))) { toast(`Locked hours can’t be changed until ${fmtTime(active.to)}`); return; }
     if (existing) commitLimit(existing, c); else confirmNewLimit(c);
   };
   const deleteLimit = () => {
-    if (locked) { toast(inHours ? `A limit can be deleted after ${fmtTime(existing.screenTo)}, once its apps unlock` : 'A limit can be deleted after midnight, once its apps unlock'); return; }
+    if (locked) { toast(inHours ? `A limit can be deleted after ${fmtTime(active.to)}, once its apps unlock` : 'A limit can be deleted after midnight, once its apps unlock'); return; }
     openSheet(
       el('h3', {}, `Delete ${existing.name}?`),
       el('p', {}, 'Its apps stop being tracked and limited, and its goal card moves to Recently Deleted.'),
@@ -512,7 +574,7 @@ function limitSheet(existing, draft = null) {
   };
   openSheet(
     el('h3', {}, existing ? existing.name : 'New screen-time limit'),
-    inHours ? el('p', { class: 'note' }, `It’s within the locked hours, so these apps are locked until ${fmtTime(existing.screenTo)}. Until then the hours can’t change and apps can only be added.`)
+    inHours ? el('p', { class: 'note' }, `It’s within the locked hours, so these apps are locked until ${fmtTime(active.to)}. Until then that time can’t change and apps can only be added.`)
       : over ? el('p', { class: 'note' }, 'Today’s limit is reached, so these apps are locked until midnight. Until then the limit can only go down and apps can only be added.') : null,
     el('div', { class: 'sheet-label' }, 'NAME'),
     nameInput,
@@ -525,8 +587,6 @@ function limitSheet(existing, draft = null) {
     el('div', { class: 'sheet-label' }, 'LOCKED HOURS'),
     onOff(hoursOn, on => { hoursOn = on; hoursBox.classList.toggle('hidden', !on); if (on) buildHours(); }, inHours),
     hoursBox,
-    el('div', { class: 'sheet-label' }, 'DAYS'),
-    daysRow,
     el('p', { class: 'note' }, 'Goalie tracks the apps’ use in 5-minute steps, even while it’s closed, and shows it as a goal on your home screen. Overnight locked hours count for the night they start.'),
     el('button', { class: 'sheet-btn primary', onclick: saveLimit }, existing ? 'Save' : 'Done'),
     existing ? el('button', { class: `sheet-btn danger${locked ? ' disabled' : ''}`, onclick: deleteLimit }, 'Delete limit') : null,
@@ -538,8 +598,9 @@ function limitSheet(existing, draft = null) {
 function commitLimit(existing, c) {
   const fields = {
     name: c.name, target: c.dailyOn ? c.minutes : null, screenEach: c.dailyOn && c.each, screenApps: c.apps,
-    screenFrom: c.hoursOn ? c.from : null, screenTo: c.hoursOn ? c.to : null,
-    days: c.days, // also the goal card's measured days
+    screenHours: c.hoursOn ? c.hours : null, screenFrom: null, screenTo: null,
+    // The goal card's measured days: the daily limit's, or (no daily limit) every locked-hours day.
+    days: c.dailyOn ? c.days : [...new Set(c.hours.flatMap(h => h.days))].sort((a, b) => a - b),
   };
   if (existing) {
     Object.assign(existing, fields);
@@ -563,17 +624,19 @@ function confirmNewLimit(c) {
       ? `Each app can be used for ${durationText(c.minutes)} a day. When one reaches it, that app locks until midnight.`
       : `These apps can be used for ${durationText(c.minutes)} a day in total. Once that’s used, they all lock until midnight.`);
   }
+  if (c.dailyOn) lines[lines.length - 1] += ` The daily limit applies on ${onDays(c.days)}.`;
   if (c.hoursOn) {
-    const overnight = clockMinutes(c.to) <= clockMinutes(c.from);
-    lines.push(`They’re locked from ${fmtTime(c.from)} to ${fmtTime(c.to)}${overnight ? ' the next morning' : ''}, no matter how much they’ve been used.`);
+    for (const h of c.hours) {
+      const overnight = clockMinutes(h.to) <= clockMinutes(h.from);
+      lines.push(`They’re locked from ${fmtTime(h.from)} to ${fmtTime(h.to)}${overnight ? ' the next morning' : ''} on ${onDays(h.days)}, no matter how much they’ve been used.`);
+    }
   }
-  lines.push(`This applies on ${daysSummary(c.days) === 'Sun–Sat' ? 'every day' : daysSummary(c.days)}.`);
   openSheet(
     el('h3', {}, 'Are these right?'),
     el('div', { class: 'confirm-summary' },
       el('p', {}, el('strong', {}, c.name), ` limits ${what}.`),
       el('ul', {}, lines.map(l => el('li', {}, l))),
-      el('p', { class: 'note' }, 'Once locked, a limit can only get stricter until it unlocks: the daily limit can be lowered, apps and days added, and locked hours can’t be changed.')),
+      el('p', { class: 'note' }, 'Once locked, a limit can only get stricter until it unlocks: the daily limit can be lowered, apps and days added, and locked hours that are on can’t be changed.')),
     el('button', { class: 'sheet-btn primary', onclick: () => commitLimit(null, c) }, 'Complete'),
     el('button', { class: 'sheet-btn', onclick: () => limitSheet(null, c) }, 'Go back'),
   );
@@ -607,7 +670,7 @@ function syncScreenGoals({ now = false } = {}) {
   screenTimer = setTimeout(async () => {
     const goals = screenLimits().filter(t => t.screenApps).map(t => ({
       key: t.screenKey, name: t.name, limit: t.target > 0 ? Math.round(t.target) : 0, lock: !!t.screenLock && canLockAtLimit(t), each: !!t.screenEach,
-      from: hasWindow(t) ? t.screenFrom : null, to: hasWindow(t) ? t.screenTo : null, days: limitDays(t),
+      hours: limitHours(t).map(h => ({ from: h.from, to: h.to, days: timeDays(h) })), days: limitDays(t),
     }));
     try {
       const { usage, reached, problems } = await locksPlugin().screenGoals({ json: JSON.stringify(goals) });

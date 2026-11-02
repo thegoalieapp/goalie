@@ -230,37 +230,65 @@ struct ScreenGoal: Codable {
     var name: String     // the goal's name, for the lock screen
     var limit: Int       // the goal's target in minutes (0: no target)
     var lock: Bool       // lock the apps once the limit is reached
-    var from: String?    // locked hours: "22:00" to "07:00" (none: no locked hours)
+    var hours: [ScreenHours]? // locked hours: one or more times, each on its own days
+    var from: String?    // (before several times: one time, "22:00" to "07:00", on the limit's days)
     var to: String?
-    var days: [Int]?     // the days it applies: 0 = Sunday … 6 = Saturday (none: every day)
+    var days: [Int]?     // the days the daily limit applies: 0 = Sunday … 6 = Saturday (none: every day)
     var each: Bool?      // daily limit for each app on its own (true) or all of them combined (none / false)
 
-    /// Whether the limit applies on the day of this date.
-    func appliesOn(_ date: Date) -> Bool {
+    /// Whether the daily limit applies on the day of this date.
+    func appliesOn(_ date: Date) -> Bool { ScreenHours.on(days, date) }
+
+    /// The locked-hours times, in the order Goalie sent them (their place is in their schedule's name).
+    var times: [ScreenHours] {
+        if let hours { return hours }
+        guard let from, let to else { return [] }
+        return [ScreenHours(from: from, to: to, days: days)]
+    }
+    /// Inside any of the locked hours right now.
+    func inWindow(_ date: Date = Date()) -> Bool { times.contains { $0.inWindow(date) } }
+    /// The time that has the apps locked right now (the one ending last), for the lock screen.
+    func activeTime(_ date: Date = Date()) -> ScreenHours? {
+        times.filter { $0.inWindow(date) }.max { $0.minutesLeft(date) < $1.minutesLeft(date) }
+    }
+}
+
+/// One locked-hours time: "22:00" to "07:00" on its days.
+struct ScreenHours: Codable {
+    var from: String
+    var to: String
+    var days: [Int]?
+
+    static func on(_ days: [Int]?, _ date: Date) -> Bool {
         guard let days, !days.isEmpty else { return true }
         return days.contains(Calendar.current.component(.weekday, from: date) - 1)
     }
+    func appliesOn(_ date: Date) -> Bool { Self.on(days, date) }
 
     /// Minutes after midnight for "22:00".
-    private static func minutes(_ hhmm: String?) -> Int? {
-        guard let parts = hhmm?.split(separator: ":").compactMap({ Int($0) }), parts.count == 2 else { return nil }
-        return parts[0] * 60 + parts[1]
+    private static func minutes(_ hhmm: String) -> Int? {
+        let parts = hhmm.split(separator: ":").compactMap { Int($0) }
+        return parts.count == 2 ? parts[0] * 60 + parts[1] : nil
     }
     var window: (start: Int, end: Int)? {
         guard let start = Self.minutes(from), let end = Self.minutes(to), start != end else { return nil }
         return (start, end)
     }
-    /// Inside the locked hours right now, on one of its days. Hours that run past midnight (10 PM to
+    private static func now(_ date: Date) -> Int {
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+    }
+    /// Inside these hours right now, on one of its days. Hours that run past midnight (10 PM to
     /// 7 AM) belong to the day they start: Friday's run ends Saturday morning.
     func inWindow(_ date: Date = Date()) -> Bool {
         guard let window else { return false }
-        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
-        let now = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        let now = Self.now(date)
         if window.start < window.end { return now >= window.start && now < window.end && appliesOn(date) }
         if now >= window.start { return appliesOn(date) }
         if now < window.end { return appliesOn(date.addingTimeInterval(-86_400)) }
         return false
     }
+    func minutesLeft(_ date: Date) -> Int { ((window?.end ?? 0) - Self.now(date) + 1440) % 1440 }
 }
 
 /// The highest step reached on one day, and when.
@@ -339,26 +367,43 @@ enum ScreenStorage {
        locked hours never undo each other. */
     /// iPhone's schedules have to start and end on the same day, so locked hours are scheduled in up
     /// to two parts: "a" (start to 11:59 PM, or start to end on the same day) and "b" (midnight to the
-    /// end, for hours that run past midnight). Part "b" belongs to the day before.
-    static func windowActivity(_ key: String, part: String) -> DeviceActivityName { DeviceActivityName("goalie.window.\(key).\(part)") }
-    static func windowActivities(_ key: String) -> [DeviceActivityName] {
-        [windowActivity(key, part: "a"), windowActivity(key, part: "b"), DeviceActivityName("goalie.window.\(key)")] // (last: before parts)
+    /// end, for hours that run past midnight). Part "b" belongs to the day before. A limit can have
+    /// several times; each time's place goes in the name: "goalie.window.<key>.0a", ".1b"…
+    static let maxTimes = 4
+    static func windowActivity(_ key: String, time: Int, part: String) -> DeviceActivityName {
+        DeviceActivityName("goalie.window.\(key).\(time)\(part)")
     }
-    static func key(ofWindow activity: DeviceActivityName) -> (key: String, part: String)? {
+    /// Every name a limit's locked hours might be scheduled under (also the older ".a" / ".b" / none).
+    static func windowActivities(_ key: String) -> [DeviceActivityName] {
+        (0..<maxTimes).flatMap { [windowActivity(key, time: $0, part: "a"), windowActivity(key, time: $0, part: "b")] }
+            + [DeviceActivityName("goalie.window.\(key).a"), DeviceActivityName("goalie.window.\(key).b"), DeviceActivityName("goalie.window.\(key)")]
+    }
+    static func key(ofWindow activity: DeviceActivityName) -> (key: String, time: Int, part: String)? {
         let prefix = "goalie.window."
         guard activity.rawValue.hasPrefix(prefix) else { return nil }
         let rest = String(activity.rawValue.dropFirst(prefix.count))
-        if rest.hasSuffix(".a") || rest.hasSuffix(".b") { return (String(rest.dropLast(2)), String(rest.suffix(1))) }
-        return (rest, "a")
+        if let dot = rest.lastIndex(of: ".") {
+            let tail = rest[rest.index(after: dot)...], key = String(rest[..<dot])
+            if tail == "a" || tail == "b" { return (key, 0, String(tail)) }
+            if let part = tail.last, part == "a" || part == "b", let time = Int(tail.dropLast()) { return (key, time, String(part)) }
+        }
+        return (rest, 0, "a")
     }
-    /// Inside a limit's locked hours. Only marks it; Shield.refresh() does the locking.
+    /// Inside one of a limit's locked-hours times ("<key>#<time>"). Only marks it; Shield.refresh()
+    /// does the locking.
     static func windowLocked(_ key: String) -> Bool {
-        (LockShared.defaults.stringArray(forKey: "windowLocked") ?? []).contains(key)
+        (LockShared.defaults.stringArray(forKey: "windowLocked") ?? []).contains { $0 == key || $0.hasPrefix("\(key)#") }
     }
-    static func setWindowLocked(_ key: String, _ on: Bool) {
-        var keys = Set(LockShared.defaults.stringArray(forKey: "windowLocked") ?? [])
-        if on { keys.insert(key) } else { keys.remove(key) }
-        LockShared.defaults.set(Array(keys), forKey: "windowLocked")
+    static func setWindowLocked(_ key: String, time: Int, _ on: Bool) {
+        var ids = Set(LockShared.defaults.stringArray(forKey: "windowLocked") ?? [])
+        ids.remove(key) // (before several times, the key on its own)
+        if on { ids.insert("\(key)#\(time)") } else { ids.remove("\(key)#\(time)") }
+        LockShared.defaults.set(Array(ids), forKey: "windowLocked")
+    }
+    /// None of the limit's times lock its apps (its locked hours were turned off, or it was deleted).
+    static func clearWindowLocks(_ key: String) {
+        let ids = (LockShared.defaults.stringArray(forKey: "windowLocked") ?? []).filter { $0 != key && !$0.hasPrefix("\(key)#") }
+        LockShared.defaults.set(ids, forKey: "windowLocked")
     }
 
     /// The limit whose locked hours cover an app right now, for the lock screen.

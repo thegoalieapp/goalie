@@ -54,13 +54,14 @@ class GoalieShield: ShieldConfigurationDataSource {
 
     private func windowScreen(for goal: ScreenGoal) -> ShieldConfiguration {
         let dark = UITraitCollection.current.userInterfaceStyle == .dark
+        let time = goal.activeTime()
         return ShieldConfiguration(
             backgroundBlurStyle: .systemThickMaterial,
             backgroundColor: nil,
             icon: UIImage(named: dark ? "ShieldIcon" : "ShieldIconNavy"),
-            title: ShieldConfiguration.Label(text: "\(goal.name) is locked until \(clock(goal.to))", color: Self.ink),
+            title: ShieldConfiguration.Label(text: "\(goal.name) is locked until \(clock(time?.to))", color: Self.ink),
             subtitle: ShieldConfiguration.Label(
-                text: "Locked hours: \(clock(goal.from)) to \(clock(goal.to)).",
+                text: "Locked hours: \(clock(time?.from)) to \(clock(time?.to)).",
                 color: Self.ink.withAlphaComponent(0.85)),
             primaryButtonLabel: ShieldConfiguration.Label(text: "OK", color: Self.paper),
             primaryButtonBackgroundColor: Self.ink)

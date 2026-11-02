@@ -1887,3 +1887,9 @@ html[data-theme="dark"] .sheet .seg.pills button.on, html[data-theme="dark"] .sh
 .confirm-summary ul { margin: 2px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--navy); line-height: 1.45; }
 .lock-problem { font-size: 13px; font-weight: 600; color: #b42318; line-height: 1.35; }
 .lock-card.locked .lock-problem, html[data-theme="dark"] .lock-problem { color: #ffb4a8; }
+
+/* Locked hours: each time is its own block (TIME 1, TIME 2…) with its days and a Remove link */
+.locked-time { border-top: 1px solid rgba(107, 114, 128, .25); margin-top: 12px; padding-top: 2px; }
+.locked-time:first-child { border-top: 0; margin-top: 0; }
+.sheet-label.time-head { display: flex; justify-content: space-between; align-items: center; color: inherit; }
+.time-remove { background: none; border: 0; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 700; letter-spacing: .05em; color: #e5484d; cursor: pointer; }

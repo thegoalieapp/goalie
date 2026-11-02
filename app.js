@@ -553,8 +553,17 @@ function drawToday(bumpId) {
   if (groupFilter && groupFilter !== NO_GROUP && !groupNames.includes(groupFilter)) groupFilter = state.settings.groupFilter = '';
   renderGroupChips(groupNames, groupFilter);
 
-  const visible = state.tallies.filter(t => matchesFilter(t, filter) && matchesGroup(t, groupFilter));
+  // Settings → Customizable App Features can hide goals on days they aren't measured (not in edit mode,
+  // so they can still be changed and moved).
+  const hideOff = state.settings.hideOffDays && !editMode;
+  const visible = state.tallies.filter(t => matchesFilter(t, filter) && matchesGroup(t, groupFilter) && !(hideOff && offDay(t)));
   if (!visible.length) {
+    if (hideOff && state.tallies.some(t => matchesFilter(t, filter) && matchesGroup(t, groupFilter))) {
+      list.append(el('div', { class: 'empty' },
+        el('strong', {}, 'Nothing measured ' + (homeDay ? 'that day' : 'today')),
+        'Goals on days they aren’t measured are hidden (Settings → Customizable App Features).'));
+      return;
+    }
     const where = groupFilter === NO_GROUP ? ' without a group' : groupFilter ? ` in ${groupFilter}` : '';
     list.append(el('div', { class: 'empty' },
       el('strong', {}, filter === 'all' ? `No goals${where}` : `No ${FILTER_NAMES[filter]} goals${where}`),
@@ -3184,6 +3193,7 @@ function renderSettings() {
   $$('#set-visionmode button').forEach(b => b.classList.toggle('on', b.dataset.v === visionMode()));
   $$('#set-dailypopup button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.dailyPopup === false ? 'off' : 'on')));
   $$('#set-todolist button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.todoList === false ? 'off' : 'on')));
+  $$('#set-offdays button').forEach(b => b.classList.toggle('on', b.dataset.v === (state.settings.hideOffDays ? 'hide' : 'show')));
   $('#updates-section').classList.toggle('hidden', isNativeApp); // the App Store handles updates
   const status = $('#notify-status');
   if (isNativeApp) {
@@ -3398,6 +3408,7 @@ featureSetting('#set-cardsize', v => { state.settings.cardSize = v; });
 featureSetting('#set-visionmode', v => { state.settings.visionMode = v; });
 featureSetting('#set-dailypopup', v => { state.settings.dailyPopup = v === 'on'; });
 featureSetting('#set-todolist', v => { state.settings.todoList = v === 'on'; });
+featureSetting('#set-offdays', v => { state.settings.hideOffDays = v === 'hide'; });
 
 $('#trash-toggle').addEventListener('click', () => {
   state.settings.trashOpen = !state.settings.trashOpen;

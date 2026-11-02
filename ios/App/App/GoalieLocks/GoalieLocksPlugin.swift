@@ -123,7 +123,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         for gone in ScreenStorage.goals() where !keys.contains(gone.key) {
             center.stopMonitoring([ScreenStorage.activity(gone.key)] + ScreenStorage.windowActivities(gone.key))
             ScreenStorage.setLimitLocked(gone.key, false)
-            ScreenStorage.setWindowLocked(gone.key, false)
+            ScreenStorage.clearWindowLocks(gone.key)
             LockShared.defaults.removeObject(forKey: "screenSig-\(gone.key)")
             LockShared.defaults.removeObject(forKey: "windowSig-\(gone.key)")
         }
@@ -182,25 +182,30 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
     /// run past midnight); and right now the apps are locked or not, whichever the clock says.
     /// Returns why iPhone wouldn't schedule them, if it wouldn't. Its schedules have to start and end
     /// on the same day, so hours that run past midnight go in two parts: start to 11:59 PM, then
-    /// midnight to the end (a part under 15 minutes, iPhone's shortest, is left out).
+    /// midnight to the end (a part under 15 minutes, iPhone's shortest, is left out). A limit can have
+    /// several times, each scheduled the same way under its own names.
     private static func scheduleWindow(_ goal: ScreenGoal, picked: FamilyActivitySelection, center: DeviceActivityCenter) -> String? {
         let all = ScreenStorage.windowActivities(goal.key)
         let sigKey = "windowSig-\(goal.key)"
-        guard let window = goal.window else {
+        let times = Array(goal.times.prefix(ScreenStorage.maxTimes))
+        guard times.contains(where: { $0.window != nil }) else {
             center.stopMonitoring(all)
-            ScreenStorage.setWindowLocked(goal.key, false)
+            ScreenStorage.clearWindowLocks(goal.key)
             LockShared.defaults.removeObject(forKey: sigKey)
             return nil
         }
         var parts: [(name: DeviceActivityName, start: Int, end: Int)] = []
-        if window.start < window.end {
-            parts.append((ScreenStorage.windowActivity(goal.key, part: "a"), window.start, window.end))
-        } else {
-            if 23 * 60 + 59 - window.start >= 15 { parts.append((ScreenStorage.windowActivity(goal.key, part: "a"), window.start, 23 * 60 + 59)) }
-            if window.end >= 15 { parts.append((ScreenStorage.windowActivity(goal.key, part: "b"), 0, window.end)) }
+        for (n, time) in times.enumerated() {
+            guard let window = time.window else { continue }
+            if window.start < window.end {
+                parts.append((ScreenStorage.windowActivity(goal.key, time: n, part: "a"), window.start, window.end))
+            } else {
+                if 23 * 60 + 59 - window.start >= 15 { parts.append((ScreenStorage.windowActivity(goal.key, time: n, part: "a"), window.start, 23 * 60 + 59)) }
+                if window.end >= 15 { parts.append((ScreenStorage.windowActivity(goal.key, time: n, part: "b"), 0, window.end)) }
+            }
         }
         var problem: String?
-        let sig = "v2-\(window.start)-\(window.end)"
+        let sig = "v3-" + times.map { "\($0.from)-\($0.to)" }.joined(separator: ",")
         if LockShared.defaults.string(forKey: sigKey) != sig || parts.contains(where: { !center.activities.contains($0.name) }) {
             center.stopMonitoring(all)
             for part in parts {
@@ -215,7 +220,8 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             if problem == nil { LockShared.defaults.set(sig, forKey: sigKey) }
         }
-        ScreenStorage.setWindowLocked(goal.key, goal.inWindow())
+        ScreenStorage.clearWindowLocks(goal.key)
+        for (n, time) in times.enumerated() where time.inWindow() { ScreenStorage.setWindowLocked(goal.key, time: n, true) }
         return problem
     }
 
