@@ -351,7 +351,7 @@ function hasActivityToday(id) {
 
 // ts: when it happened (now by default; the custom amount sheet can pick an earlier day).
 // replaceDay: remove what was already logged that day first (Settings → When logging custom dates).
-function logEntry(t, value, ts = logTime(), replaceDay = false) {
+function logEntry(t, value, ts = logTime(), replaceDay = false, proof = null) {
   if (isCheck(t)) {
     // One check-off per period, for past days as well as today.
     const period = periodStart(t.reset, new Date(ts)).getTime();
@@ -359,12 +359,17 @@ function logEntry(t, value, ts = logTime(), replaceDay = false) {
     if (already && !replaceDay) { toast(ts >= periodStart(t.reset).getTime() ? `${t.name} is already checked off` : `${t.name} was already checked off then`); return; }
     value = 1;
   }
+  const dayFrom = startOfDay(new Date(ts)).getTime(), dayTo = addDays(startOfDay(new Date(ts)), 1).getTime();
+  if (!proof && proofNeededFor(t, ts, Number(value), e => replaceDay && e.ts >= dayFrom && e.ts < dayTo)) {
+    proofSheet(t, p => { closeSheet(); logEntry(t, value, ts, replaceDay, p); });
+    return;
+  }
   entryChange(t.id, () => {
     if (replaceDay) {
       const from = startOfDay(new Date(ts)).getTime(), to = addDays(startOfDay(new Date(ts)), 1).getTime();
       state.entries = state.entries.filter(e => e.tallyId !== t.id || e.ts < from || e.ts >= to);
     }
-    state.entries.push({ id: uid(), tallyId: t.id, ts, value: Number(value) });
+    state.entries.push({ id: uid(), tallyId: t.id, ts, value: Number(value), ...(proof ? { proof } : {}) });
   });
   save();
   renderToday(t.id);
@@ -1444,19 +1449,27 @@ function entrySheet(t, entry, opts = {}) {
     else if (value == null || !isFinite(value) || value === 0) problem = 'Enter an amount.';
     if (problem) { error.textContent = problem; error.classList.remove('hidden'); return; }
 
-    entryChange(t.id, () => {
-      if (entry) {
-        entry.ts = ts;
-        entry.value = value;
-      } else {
-        state.entries.push({ id: uid(), tallyId: t.id, ts, value });
-      }
-    });
-    save();
-    refreshAll();
-    const label = new Date(ts);
-    toast(`${entry ? 'Updated' : 'Added'} ${num(t, value)} on ${MONTH_SHORT[label.getMonth()]} ${label.getDate()}`);
-    switchSheet(back);
+    const commit = proof => {
+      entryChange(t.id, () => {
+        if (entry) {
+          entry.ts = ts;
+          entry.value = value;
+          if (proof) entry.proof = proof;
+        } else {
+          state.entries.push({ id: uid(), tallyId: t.id, ts, value, ...(proof ? { proof } : {}) });
+        }
+      });
+      save();
+      refreshAll();
+      const label = new Date(ts);
+      toast(`${entry ? 'Updated' : 'Added'} ${num(t, value)} on ${MONTH_SHORT[label.getMonth()]} ${label.getDate()}`);
+      switchSheet(back);
+    };
+    if (!entry?.proof && proofNeededFor(t, ts, value, e => e.id === entry?.id)) {
+      switchSheet(() => proofSheet(t, commit, () => switchSheet(back)));
+      return;
+    }
+    commit();
   };
 
   const remove = () => {
@@ -1604,7 +1617,7 @@ function blankForm() {
   return {
     name: '', examples: '', nonExamples: '', direction: 'increase', unit: 'occurrences', customUnit: '', reset: 'day', days: [0, 1, 2, 3, 4, 5, 6], groups: [], dueDate: '', defaultCount: 1,
     logMode: 'default', target: null, reminder: null,
-    color: DEFAULT_COLOR, textColor: '', bottomMode: 'unit', bottomText: '',
+    color: DEFAULT_COLOR, textColor: '', bottomMode: 'unit', bottomText: '', proofOn: false,
   };
 }
 
@@ -1660,6 +1673,7 @@ function syncForm() {
   $('#per-date').textContent = byDate(form) ? `BY ${longDate(form.dueDate).toUpperCase()}` : 'BY CUSTOM DATE';
   if (byDate(form)) $('#goal-per').textContent = `BY ${longDate(form.dueDate).toUpperCase()}`;
   $('#reminder-value').textContent = form.reminder ? `DAILY AT ${fmtTime(form.reminder)}` : 'NONE';
+  syncProofField();
   setSeg('colorTarget', colorTarget);
   const picked = colorTarget === 'goal' ? form.color : form.textColor;
   $$('#color-grid .swatch').forEach(s => s.classList.toggle('on', s.dataset.c === picked));
@@ -1667,6 +1681,12 @@ function syncForm() {
   $('#text-auto').classList.toggle('on', !form.textColor);
   renderColorPreview();
   validateForm();
+}
+
+// Proof of completion only shows for goals that can be completed by logging.
+function syncProofField() {
+  $('#proof-section').classList.toggle('hidden', !proofEligible(form));
+  setSeg('proofOn', form.proofOn ? 'on' : 'off');
 }
 
 function setSeg(field, value) {
@@ -1942,6 +1962,7 @@ $$('#create-form .seg').forEach(seg => seg.addEventListener('click', e => {
       break;
     case 'colorTarget': colorTarget = v; break;
     case 'logMode': form.logMode = v; autoCustom = false; break;
+    case 'proofOn': form.proofOn = v === 'on'; break;
     case 'bottomMode': form.bottomMode = v; break;
     case 'direction': form.direction = v; break;
     case 'unit': {
@@ -1986,7 +2007,7 @@ $('#f-default').addEventListener('input', e => { form.defaultCount = parseFloat(
 $('#f-goal').addEventListener('input', e => {
   const v = parseFloat(e.target.value);
   form.target = isFinite(v) ? v : null;
-  validateForm(); renderGoalDesc();
+  validateForm(); renderGoalDesc(); syncProofField();
 });
 $('#f-examples').addEventListener('input', e => { form.examples = e.target.value; });
 $('#f-nonexamples').addEventListener('input', e => { form.nonExamples = e.target.value; });
@@ -2228,6 +2249,7 @@ $('#btn-submit').addEventListener('click', () => {
     nonExamples: (form.nonExamples || '').trim(),
     days: measuredWeekdays(form).slice(),
   };
+  data.proofOn = !!form.proofOn && proofEligible(data);
   if (editingId) {
     const i = state.tallies.findIndex(t => t.id === editingId);
     if (i >= 0) state.tallies[i] = { ...state.tallies[i], ...data, id: editingId };
@@ -2327,6 +2349,7 @@ function drawStats() {
   $('#range-next').disabled = (statsState.view === 'calendar' ? calState.offset : statsState.offset) >= 0;
   $$('#range-tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === statsState.range));
   $$('.view-btn').forEach(b => b.classList.toggle('on', b.dataset.view === statsState.view));
+  $('#stats-share').classList.toggle('hidden', statsState.view === 'proof');
 
   // Which goals to show: the Show dropdown (goal types and groups, any mix).
   renderShowPanel();
@@ -2357,6 +2380,8 @@ function drawStats() {
     list.append(el('div', { class: 'empty' }, el('strong', {}, 'No goals here'), 'Turn on more goal types or groups in SHOW at the top.'));
     return;
   }
+
+  if (statsState.view === 'proof') { renderProof(list, shown, r); return; }
 
   list.append(el('p', { class: 'stats-hint' }, statsState.range === 'year' ? 'Tap a month to zoom in.' : 'Tap a bar or point to see or edit that day.'));
   const startMs = r.start.getTime(), endMs = r.end.getTime();
@@ -2979,6 +3004,229 @@ function calendarDaySheet(goals, cell) {
   );
 }
 
+/* ---------- Proof of completion ----------
+   A goal with proof on (t.proofOn) asks for a note, a photo or both when it's completed. The log
+   that completes it isn't saved until proof is added, so streaks, stats and app locks need nothing
+   special: without proof the goal simply isn't complete. Proof lives on that entry (e.proof =
+   { text, photo, }). Notes sync with the entry; photos stay on this phone, in their own database,
+   and go in Goalie backups. They're shrunk first, which also drops location and camera details. */
+const PROOF_PHOTO_MAX = 1600, PROOF_TEXT_MAX = 500;
+const PROOF_KEEP_MS = 7 * DAY_MS; // a photo no entry uses is kept this long (undo can bring its entry back)
+
+// Only goals with a moment of completion: more-is-better goals with a target, and check-offs.
+function proofEligible(t) { return !t.screen && t.direction !== 'decrease' && (isCheck(t) || t.target > 0); }
+
+// Would this change complete the goal for its period without any proof? (goesAway: entries it replaces.)
+function proofNeededFor(t, ts, value, goesAway = () => false) {
+  if (!t.proofOn || !proofEligible(t) || !countsToward(t, ts)) return false;
+  const from = periodStart(t.reset, new Date(ts)), to = nextPeriodStart(t.reset, from).getTime();
+  const inPeriod = countedEntries(t).filter(e => e.ts >= from.getTime() && e.ts < to);
+  const stays = inPeriod.filter(e => !goesAway(e));
+  const sum = list => list.reduce((s, e) => s + e.value, 0);
+  if (!goalReached(t, sum(stays) + value) || stays.some(e => e.proof)) return false;
+  return !goalReached(t, sum(inPeriod)) || inPeriod.some(e => e.proof);
+}
+
+let proofDbPromise = null;
+function proofDb() {
+  if (!proofDbPromise) {
+    proofDbPromise = new Promise((resolve, reject) => {
+      if (!window.indexedDB) { reject(new Error('no indexedDB')); return; }
+      const req = indexedDB.open('goalie-proof', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('photos');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return proofDbPromise;
+}
+function proofRun(mode, fn) {
+  return proofDb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction('photos', mode);
+    const req = fn(tx.objectStore('photos'));
+    tx.oncomplete = () => resolve(req.result);
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  }));
+}
+// Kept as bytes rather than a Blob: older iPhones can lose Blobs saved in IndexedDB.
+async function proofPhotoSave(id, blob, at = Date.now()) {
+  const bytes = await blob.arrayBuffer();
+  await proofRun('readwrite', s => s.put({ bytes, type: blob.type || 'image/jpeg', at }, id));
+}
+async function proofPhotoBlob(id) {
+  const rec = await proofRun('readonly', s => s.get(id));
+  return rec ? new Blob([rec.bytes], { type: rec.type }) : null;
+}
+const proofPhotosClear = () => proofRun('readwrite', s => s.clear());
+
+// Shrink a picked photo to a JPEG (redrawing it leaves location and camera details behind).
+function shrinkPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, PROOF_PHOTO_MAX / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => (b ? resolve(b) : reject(new Error('no picture'))), 'image/jpeg', 0.8);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('unreadable picture')); };
+    img.src = url;
+  });
+}
+
+// Asks for the proof; onDone gets it once there's a note or photo. Cancel leaves nothing logged.
+function proofSheet(t, onDone, onCancel = closeSheet) {
+  const text = el('textarea', { class: 'text-input full proof-text', rows: '3', maxlength: String(PROOF_TEXT_MAX), placeholder: 'What did you do?' });
+  let photo = null, previewUrl = null;
+  const error = el('p', { class: 'form-error hidden' });
+  const preview = el('img', { class: 'proof-photo hidden', alt: 'Your proof photo' });
+  const pick = el('input', { type: 'file', accept: 'image/*', class: 'hidden' });
+  const pickBtn = el('button', { type: 'button', class: 'sheet-btn', onclick: () => pick.click() }, 'Add a photo');
+  const showPhoto = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = photo ? URL.createObjectURL(photo) : null;
+    if (previewUrl) preview.src = previewUrl; else preview.removeAttribute('src');
+    preview.classList.toggle('hidden', !photo);
+    pickBtn.textContent = photo ? 'Change photo' : 'Add a photo';
+  };
+  const showError = msg => { error.textContent = msg; error.classList.remove('hidden'); };
+  pick.addEventListener('change', async () => {
+    const file = pick.files[0];
+    pick.value = '';
+    if (!file) return;
+    try { photo = await shrinkPhoto(file); error.classList.add('hidden'); showPhoto(); }
+    catch (e) { showError('That photo couldn’t be opened. Try another one.'); }
+  });
+  const saveBtn = el('button', { type: 'button', class: 'sheet-btn primary', onclick: async () => {
+    const note = text.value.trim();
+    if (!note && !photo) { showError('Add a note or a photo to complete this goal.'); return; }
+    const proof = {};
+    if (note) proof.text = note;
+    saveBtn.disabled = true;
+    try {
+      if (photo) { proof.photo = uid(); await proofPhotoSave(proof.photo, photo); }
+    } catch (e) {
+      saveBtn.disabled = false;
+      showError('That photo couldn’t be saved. Try again, or add a note instead.');
+      return;
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    onDone(proof);
+  } }, 'Save proof');
+  openSheet(
+    el('h3', {}, `Proof for ${t.name}`),
+    el('p', {}, 'This completes your goal. Add a note, a photo or both. It won’t count until you do.'),
+    text, preview, pick, pickBtn, error, saveBtn,
+    el('button', { type: 'button', class: 'sheet-btn', onclick: onCancel }, 'Cancel'),
+  );
+}
+
+// Stats → Proof: everything proved in the range shown, newest first.
+let proofUrls = [];
+function renderProof(list, shown, r) {
+  proofUrls.forEach(u => URL.revokeObjectURL(u));
+  proofUrls = [];
+  const from = r.start.getTime(), to = r.end.getTime();
+  const items = shown.flatMap(t => entriesFor(t.id).filter(e => e.proof && e.ts >= from && e.ts < to).map(e => ({ t, e }))).sort((a, b) => b.e.ts - a.e.ts);
+  if (!items.length) {
+    list.append(el('div', { class: 'empty' }, el('strong', {}, 'No proof here yet'),
+      'Turn on PROOF OF COMPLETION when you create or edit a goal, and what you add shows up here.'));
+    return;
+  }
+  for (const { t, e } of items) {
+    const img = e.proof.photo ? el('img', { class: 'proof-photo', alt: `Proof for ${t.name}` }) : null;
+    const away = e.proof.photo ? el('p', { class: 'note hidden' }, 'This photo is on another device.') : null;
+    if (img) showProofPhoto(e.proof.photo, img, away);
+    list.append(el('button', { type: 'button', class: 'proof-card', onclick: () => proofDetail(t, e) },
+      el('div', { class: 'proof-head' },
+        el('span', { class: 'proof-dot', style: `background:${t.color || DEFAULT_COLOR}` }),
+        el('strong', {}, t.name)),
+      el('div', { class: 'proof-when' }, proofWhen(e)),
+      e.proof.text ? el('p', { class: 'proof-note' }, e.proof.text) : null,
+      img, away));
+  }
+}
+function proofWhen(e) {
+  const d = new Date(e.ts);
+  return `${DAY_NAMES[d.getDay()]}, ${MONTH_SHORT[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} · ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+}
+async function showProofPhoto(id, img, away) {
+  let blob = null;
+  try { blob = await proofPhotoBlob(id); } catch (e) { /* shown as missing */ }
+  if (!blob) { img.classList.add('hidden'); away.classList.remove('hidden'); return; }
+  const url = URL.createObjectURL(blob);
+  proofUrls.push(url);
+  img.src = url;
+}
+function proofDetail(t, e) {
+  const img = e.proof.photo ? el('img', { class: 'proof-photo full', alt: `Proof for ${t.name}` }) : null;
+  const away = e.proof.photo ? el('p', { class: 'note hidden' }, 'This photo is on another device.') : null;
+  if (img) showProofPhoto(e.proof.photo, img, away);
+  openSheet(
+    el('h3', {}, t.name),
+    el('div', { class: 'proof-when' }, proofWhen(e)),
+    e.proof.text ? el('p', { class: 'proof-note' }, e.proof.text) : null,
+    img, away,
+    el('button', { type: 'button', class: 'sheet-btn danger', onclick: () => {
+      entryChange(t.id, () => { state.entries = state.entries.filter(x => x.id !== e.id); });
+      save();
+      closeSheet();
+      refreshAll();
+      toast('Log and proof deleted', () => entryUndo(t.id));
+    } }, 'Delete this log and its proof'),
+    el('button', { type: 'button', class: 'sheet-btn', onclick: closeSheet }, 'Done'),
+  );
+}
+
+// Backups carry the photos, since they exist nowhere else.
+function proofPhotoIds() {
+  const ids = new Set();
+  for (const e of state.entries) if (e.proof?.photo) ids.add(e.proof.photo);
+  for (const item of state.trash) for (const e of item.entries || []) if (e.proof?.photo) ids.add(e.proof.photo);
+  return ids;
+}
+async function proofPhotosForBackup() {
+  const out = {};
+  for (const id of proofPhotoIds()) {
+    const blob = await proofPhotoBlob(id).catch(() => null);
+    if (blob) {
+      out[id] = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+    }
+  }
+  return out;
+}
+async function proofPhotosFromBackup(photos) {
+  for (const [id, url] of Object.entries(photos || {})) {
+    const [head, b64] = String(url).split(',');
+    const bin = atob(b64 || '');
+    const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0));
+    await proofPhotoSave(id, new Blob([bytes], { type: (head.match(/data:(.*?);/) || [])[1] || 'image/jpeg' }));
+  }
+}
+
+// Photos whose entry is long gone (deleted, or its goal emptied from Recently Deleted).
+async function sweepProofPhotos() {
+  if (storage.damagedKey || !state.entries.length) return; // never judge by data that didn't load
+  const used = proofPhotoIds(), now = Date.now();
+  await proofRun('readwrite', s => {
+    const req = s.openCursor();
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) return;
+      if (!used.has(c.key) && now - (c.value.at || 0) > PROOF_KEEP_MS) c.delete();
+      c.continue();
+    };
+    return req;
+  });
+}
+
 /* ---------- Share: a picture of whatever Stats is showing ---------- */
 $('#stats-share').addEventListener('click', () => shareImage(drawStatsImage(), 'goalie-stats'));
 
@@ -3416,9 +3664,24 @@ $('#trash-toggle').addEventListener('click', () => {
 });
 
 $('#btn-export').addEventListener('click', async () => {
-  const json = JSON.stringify({ app: 'goalie', version: 1, exportedAt: new Date().toISOString(), ...state }, null, 2);
+  const proofPhotos = proofPhotoIds().size ? await proofPhotosForBackup().catch(() => ({})) : {};
+  const count = Object.keys(proofPhotos).length;
+  const json = JSON.stringify({ app: 'goalie', version: 1, exportedAt: new Date().toISOString(), ...state, ...(count ? { proofPhotos } : {}) }, null, 2);
   const name = `goalie-backup-${new Date().toISOString().slice(0, 10)}.json`;
   const file = new File([json], name, { type: 'application/json' });
+  // Reading photos takes a moment, and iPhone only opens Share right after a tap: ask for one more.
+  if (count) {
+    openSheet(
+      el('h3', {}, 'Your backup is ready'),
+      el('p', {}, `It includes ${count} proof photo${count === 1 ? '' : 's'}, which are only stored on this phone.`),
+      el('button', { class: 'sheet-btn primary', onclick: () => { closeSheet(); shareBackup(file, name); } }, 'Save backup'),
+      el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Cancel'),
+    );
+    return;
+  }
+  shareBackup(file, name);
+});
+async function shareBackup(file, name) {
   const done = () => { state.settings.lastExport = Date.now(); save(); hideBanner(); renderSettings(); };
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -3434,7 +3697,7 @@ $('#btn-export').addEventListener('click', async () => {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   done();
-});
+}
 
 // Unreadable saved data that was kept aside (see keepDamagedCopy): download it to recover by hand.
 function damagedKeys() {
@@ -3494,7 +3757,9 @@ $('#import-file').addEventListener('change', async e => {
       el('button', {
         class: 'sheet-btn primary',
         onclick: () => {
-          state = normalizeState(data);
+          const { proofPhotos, ...rest } = data;
+          proofPhotosFromBackup(proofPhotos).catch(() => toast('Some proof photos couldn’t be restored'));
+          state = normalizeState(rest);
           migrate(); save(); clearUndoHistory();
           renderToday(); renderSettings(); closeSheet(); toast('Backup imported');
         },
@@ -3519,7 +3784,7 @@ $('#btn-wipe').addEventListener('click', () => {
       : 'All tallies and history on this device will be erased. Export a backup first if you might want it back.'),
     el('button', {
       class: 'sheet-btn danger',
-      onclick: () => { state = DEFAULT_STATE(); save(); clearUndoHistory(); renderToday(); renderSettings(); closeSheet(); toast('All data deleted'); },
+      onclick: () => { state = DEFAULT_STATE(); proofPhotosClear().catch(() => {}); save(); clearUndoHistory(); renderToday(); renderSettings(); closeSheet(); toast('All data deleted'); },
     }, 'Delete all data'),
     el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Cancel'),
   );
@@ -4236,6 +4501,7 @@ async function syncStorage() {
   idbSet('state', JSON.stringify(state)).catch(() => {});
 }
 const storageReady = syncStorage(); // (account.js waits for this before syncing with the cloud)
+storageReady.then(sweepProofPhotos).catch(() => {});
 // Ask iPhone not to clear Goalie's storage when space runs low.
 navigator.storage?.persist?.().catch(() => {});
 if (storage.damagedKey) setTimeout(() => toast('Saved data couldn’t be read. A copy was kept (Settings → Backup).'), 1200);

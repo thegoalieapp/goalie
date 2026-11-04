@@ -75,6 +75,8 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Goalie uses the camera when you take a photo as proof of completing a goal.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Goalie saves the progress pictures you share to Photos when you tap Save Image.</string>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
