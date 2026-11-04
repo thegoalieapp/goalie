@@ -1617,7 +1617,7 @@ function blankForm() {
   return {
     name: '', examples: '', nonExamples: '', direction: 'increase', unit: 'occurrences', customUnit: '', reset: 'day', days: [0, 1, 2, 3, 4, 5, 6], groups: [], dueDate: '', defaultCount: 1,
     logMode: 'default', target: null, reminder: null,
-    color: DEFAULT_COLOR, textColor: '', bottomMode: 'unit', bottomText: '', proofOn: false,
+    color: DEFAULT_COLOR, textColor: '', bottomMode: 'unit', bottomText: '', proofOn: false, proofPrompt: '',
   };
 }
 
@@ -1643,6 +1643,7 @@ function openForm(t) {
   $('#f-goal').value = form.target ?? '';
   $('#f-examples').value = form.examples || '';
   $('#f-nonexamples').value = form.nonExamples || '';
+  $('#f-proof-prompt').value = form.proofPrompt || '';
   requestAnimationFrame(() => { fitTextArea($('#f-examples')); fitTextArea($('#f-nonexamples')); });
   $('#f-bottom').value = form.bottomText;
   $('#f-unit').value = form.customUnit || '';
@@ -1687,6 +1688,7 @@ function syncForm() {
 function syncProofField() {
   $('#proof-section').classList.toggle('hidden', !proofEligible(form));
   setSeg('proofOn', form.proofOn ? 'on' : 'off');
+  $('#proof-prompt-box').classList.toggle('hidden', !form.proofOn);
 }
 
 function setSeg(field, value) {
@@ -2010,6 +2012,7 @@ $('#f-goal').addEventListener('input', e => {
   validateForm(); renderGoalDesc(); syncProofField();
 });
 $('#f-examples').addEventListener('input', e => { form.examples = e.target.value; });
+$('#f-proof-prompt').addEventListener('input', e => { form.proofPrompt = e.target.value; });
 $('#f-nonexamples').addEventListener('input', e => { form.nonExamples = e.target.value; });
 $('#f-bottom').addEventListener('input', e => { form.bottomText = e.target.value; schedulePreview(); });
 $('#f-unit').addEventListener('input', e => {
@@ -2250,6 +2253,7 @@ $('#btn-submit').addEventListener('click', () => {
     days: measuredWeekdays(form).slice(),
   };
   data.proofOn = !!form.proofOn && proofEligible(data);
+  data.proofPrompt = (form.proofPrompt || '').trim();
   if (editingId) {
     const i = state.tallies.findIndex(t => t.id === editingId);
     if (i >= 0) state.tallies[i] = { ...state.tallies[i], ...data, id: editingId };
@@ -3008,7 +3012,7 @@ function calendarDaySheet(goals, cell) {
    A goal with proof on (t.proofOn) asks for a note, a photo or both when it's completed. The log
    that completes it isn't saved until proof is added, so streaks, stats and app locks need nothing
    special: without proof the goal simply isn't complete. Proof lives on that entry (e.proof =
-   { text, photo, }). Notes sync with the entry; photos stay on this phone, in their own database,
+   { text, photo, prompt }, with the goal's question as it was asked). Notes sync with the entry; photos stay on this phone, in their own database,
    and go in Goalie backups. They're shrunk first, which also drops location and camera details. */
 const PROOF_PHOTO_MAX = 1600, PROOF_TEXT_MAX = 500;
 const PROOF_KEEP_MS = 7 * DAY_MS; // a photo no entry uses is kept this long (undo can bring its entry back)
@@ -3078,7 +3082,7 @@ function shrinkPhoto(file) {
 
 // Asks for the proof; onDone gets it once there's a note or photo. Cancel leaves nothing logged.
 function proofSheet(t, onDone, onCancel = closeSheet) {
-  const text = el('textarea', { class: 'text-input full proof-text', rows: '3', maxlength: String(PROOF_TEXT_MAX), placeholder: 'What did you do?' });
+  const text = el('textarea', { class: 'text-input full proof-text', rows: '3', maxlength: String(PROOF_TEXT_MAX), placeholder: t.proofPrompt ? 'Your answer' : 'What did you do?' });
   let photo = null, previewUrl = null;
   const error = el('p', { class: 'form-error hidden' });
   const preview = el('img', { class: 'proof-photo hidden', alt: 'Your proof photo' });
@@ -3104,6 +3108,7 @@ function proofSheet(t, onDone, onCancel = closeSheet) {
     if (!note && !photo) { showError('Add a note or a photo to complete this goal.'); return; }
     const proof = {};
     if (note) proof.text = note;
+    if (t.proofPrompt) proof.prompt = t.proofPrompt;
     saveBtn.disabled = true;
     try {
       if (photo) { proof.photo = uid(); await proofPhotoSave(proof.photo, photo); }
@@ -3118,6 +3123,7 @@ function proofSheet(t, onDone, onCancel = closeSheet) {
   openSheet(
     el('h3', {}, `Proof for ${t.name}`),
     el('p', {}, 'This completes your goal. Add a note, a photo or both. It won’t count until you do.'),
+    t.proofPrompt ? el('p', { class: 'proof-prompt' }, t.proofPrompt) : null,
     text, preview, pick, pickBtn, error, saveBtn,
     el('button', { type: 'button', class: 'sheet-btn', onclick: onCancel }, 'Cancel'),
   );
@@ -3144,6 +3150,7 @@ function renderProof(list, shown, r) {
         el('span', { class: 'proof-dot', style: `background:${t.color || DEFAULT_COLOR}` }),
         el('strong', {}, t.name)),
       el('div', { class: 'proof-when' }, proofWhen(e)),
+      e.proof.prompt ? el('p', { class: 'proof-prompt' }, e.proof.prompt) : null,
       e.proof.text ? el('p', { class: 'proof-note' }, e.proof.text) : null,
       img, away));
   }
@@ -3167,6 +3174,7 @@ function proofDetail(t, e) {
   openSheet(
     el('h3', {}, t.name),
     el('div', { class: 'proof-when' }, proofWhen(e)),
+    e.proof.prompt ? el('p', { class: 'proof-prompt' }, e.proof.prompt) : null,
     e.proof.text ? el('p', { class: 'proof-note' }, e.proof.text) : null,
     img, away,
     el('button', { type: 'button', class: 'sheet-btn danger', onclick: () => {

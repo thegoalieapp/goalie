@@ -1916,3 +1916,4 @@ html[data-theme="dark"] .see-apps { color: #8fb4ff; }
 .proof-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; }
 .proof-when { margin-top: 2px; font-size: 13px; color: var(--muted); }
 .proof-note { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.proof-prompt { margin: 8px 0 0; font-weight: 700; overflow-wrap: anywhere; }
