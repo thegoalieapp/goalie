@@ -428,8 +428,9 @@ private struct CalendarView: View {
     }
 
     private func dayCell(_ day: WDay, today: Bool, large: Bool) -> some View {
-        let fill = day.color.map { Color(hex: $0) } ?? Color.secondary.opacity(0.15)
-        let lightText = day.color == nil || day.color == "#facc15" || day.color == "#ffffff"
+        // "gold": the day went over 100% (Average progress), shown golden.
+        let fill = day.color == "gold" ? Color(hex: "#d4a017") : day.color.map { Color(hex: $0) } ?? Color.secondary.opacity(0.15)
+        let lightText = day.color == nil || day.color == "#facc15"
         return Text("\(day.day)")
             .font(.system(size: large ? 12 : 8, weight: .bold, design: .rounded))
             .foregroundColor(lightText ? .primary : .white)

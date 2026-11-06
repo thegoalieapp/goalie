@@ -4579,7 +4579,7 @@ function widgetSnapshot() {
   try {
     for (let d = new Date(now.getFullYear(), now.getMonth(), 1); d.getMonth() === now.getMonth(); d = addDays(d, 1)) {
       const color = pctColor(periodPct(daily, d.getTime(), addDays(d, 1).getTime()));
-      days.push({ day: d.getDate(), color: color === OVER ? '#ffffff' : color });
+      days.push({ day: d.getDate(), color: color === OVER ? 'gold' : color }); // gold: over 100% (Average progress)
     }
   } finally { calState.type = was; }
   const todos = state.todos.filter(t => !t.done)

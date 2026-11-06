@@ -113,7 +113,7 @@ struct WCalendar: Codable {
 
 struct WDay: Codable {
     var day: Int
-    var color: String?
+    var color: String?   // "#22c55e"…, "gold" (over 100%), or none (nothing to score)
 }
 
 struct GoalieEntry: TimelineEntry {
