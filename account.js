@@ -297,6 +297,9 @@ function applyMerged(view) {
   const keep = Object.fromEntries(DEVICE_SETTINGS.filter(k => k in state.settings).map(k => [k, state.settings[k]]));
   const screenTime = state.entries.filter(e => e.auto); // kept on this phone, never in the cloud copy
   state = normalizeState({ ...view, entries: [...view.entries, ...screenTime], settings: { ...view.settings, ...keep } });
+  // The cloud copy can still hold the "nullnull" name an Apple sign-in once saved: clear it here too
+  // (saving then clears it from the cloud).
+  if (/^(null)+$/i.test(state.settings.name || '')) state.settings.name = '';
   clearUndoHistory();
   save();
   applyTheme();
