@@ -136,7 +136,7 @@ private struct TodayView: View {
     var body: some View {
         let goals = entry.snapshot?.goals(at: entry.date) ?? []
         let done = goals.filter { $0.done }.count
-        let room = family == .systemMedium ? 3 : family == .systemLarge ? 8 : 16
+        let room = family == .systemMedium ? 3 : family == .systemLarge ? 10 : 16
         let shown = Array(goals.prefix(room))
         VStack(alignment: .leading, spacing: 9) {
             Header(title: "TODAY", detail: goals.isEmpty ? nil : "\(done) of \(goals.count) done")
