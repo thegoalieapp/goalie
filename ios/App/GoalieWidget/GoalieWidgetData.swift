@@ -147,4 +147,24 @@ extension Color {
     }
 
     static let goalieNavy = Color(hex: "#1c2a4a")
+
+    /// How light a "#rrggbb" color is, 0 (black) to 1 (white).
+    static func lightness(_ hex: String) -> Double {
+        let digits = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        var value: UInt64 = 0
+        Scanner(string: digits).scanHexInt64(&value)
+        let r = Double((value >> 16) & 0xff) / 255, g = Double((value >> 8) & 0xff) / 255, b = Double(value & 0xff) / 255
+        return 0.299 * r + 0.587 * g + 0.114 * b
+    }
+
+    /// A goal's color for rings, bars and dots: white-ish and black-ish goals would vanish on a white
+    /// or dark widget, so those use the text color (dark on light widgets, white on dark ones).
+    static func shown(_ hex: String) -> Color {
+        let light = lightness(hex)
+        return light > 0.85 || light < 0.12 ? .primary : Color(hex: hex)
+    }
+    static func needsOutline(_ hex: String) -> Bool {
+        let light = lightness(hex)
+        return light > 0.85 || light < 0.12
+    }
 }

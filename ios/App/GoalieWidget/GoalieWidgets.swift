@@ -96,6 +96,7 @@ private struct GoalRow: View {
         HStack(spacing: 8) {
             ZStack {
                 Circle().fill(Color(hex: goal.color))
+                if Color.needsOutline(goal.color) { Circle().stroke(Color.primary, lineWidth: 1.5) }
                 if goal.done {
                     Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundColor(Color(hex: goal.ink))
                 }
@@ -108,7 +109,7 @@ private struct GoalRow: View {
                     Text(goal.countText).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 if goal.kind != "check" && goal.target > 0 {
-                    ProgressBar(fraction: goal.fraction, color: goal.kind == "down" && goal.count > goal.target ? .red : Color(hex: goal.color))
+                    ProgressBar(fraction: goal.fraction, color: goal.kind == "down" && goal.count > goal.target ? .red : Color.shown(goal.color))
                 }
             }
         }
@@ -249,7 +250,7 @@ private struct GoalView: View {
         default:
             VStack(spacing: 6) {
                 ZStack {
-                    Ring(fraction: goal.fraction, color: Color(hex: goal.color), width: 10)
+                    Ring(fraction: goal.fraction, color: Color.shown(goal.color), width: 10)
                     if goal.kind == "check" {
                         Image(systemName: goal.done ? "checkmark" : "circle.dashed").font(.system(size: 24, weight: .heavy))
                     } else {
@@ -331,6 +332,7 @@ private struct StreakBadge: View {
             .foregroundColor(Color(hex: streak.ink))
             .frame(width: size, height: size)
             .background(Circle().fill(Color(hex: streak.color)))
+            .overlay(Circle().stroke(Color.primary, lineWidth: Color.needsOutline(streak.color) ? 1.5 : 0))
     }
 }
 
