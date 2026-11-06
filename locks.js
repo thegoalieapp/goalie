@@ -105,6 +105,23 @@ function appsText(apps) {
   return parts.length ? parts.join(', ') : 'No apps chosen yet';
 }
 
+// A lock or limit holds up to 50 apps, 50 websites and 50 categories (Apple's picker won't finish
+// past that). When one is filled up, offer another with the same settings for the rest.
+const fullPicks = new Set(); // ids picked up to the limit, until they're saved
+const nextName = name => {
+  const m = name.match(/^(.*?)\s*(\d+)$/);
+  return (m ? `${m[1]} ${+m[2] + 1}` : `${name} 2`).slice(0, 30);
+};
+function offerAnother(kind, name, open) {
+  setTimeout(() => openSheet(
+    el('h3', {}, 'Want to block more?'),
+    el('p', {}, `${name} is full: one ${kind} holds up to 50 apps, 50 websites and 50 categories. Make another ${kind} with the same settings for the rest?`),
+    kind === 'limit' ? el('p', { class: 'note' }, 'Each limit keeps its own daily time.') : null,
+    el('button', { class: 'sheet-btn primary', onclick: () => switchSheet(open) }, `Make another ${kind}`),
+    el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Not now'),
+  ), 400);
+}
+
 // "See which apps": Apple's own list of what a lock or limit has picked, with names and icons.
 // Goalie itself is never told which apps they are, so the list comes up from iPhone, not here.
 function seeApps(id, picked) {
@@ -219,6 +236,7 @@ function lockSheet(existing, draft = null) {
     try {
       const r = await locksPlugin().pickApps({ id: lock.id, locked });
       if (!r.cancelled) { lock.apps = { apps: r.apps, categories: r.categories, sites: r.sites }; appsLine.textContent = appsText(lock.apps); }
+      if (!r.cancelled) fullPicks[r.full ? 'add' : 'delete'](lock.id);
     } catch (e) { toast('Couldn’t open the app picker'); }
   };
   const saveLock = () => {
@@ -268,6 +286,9 @@ function lockSheet(existing, draft = null) {
 
 // Save a lock and lock or unlock its apps.
 function commitLock(lock) {
+  if (fullPicks.delete(lock.id)) offerAnother('lock', lock.name || 'This lock', () => lockSheet(null, {
+    ...JSON.parse(JSON.stringify(lock)), id: uid(), name: nextName(lock.name || 'Lock'), apps: null, createdAt: Date.now(),
+  }));
   const list = readLocks();
   const at = list.findIndex(l => l.id === lock.id);
   if (at >= 0) list[at] = lock; else list.push(lock);
@@ -551,6 +572,7 @@ function limitSheet(existing, draft = null) {
   const chooseApps = async () => {
     try {
       const r = await locksPlugin().pickApps({ id: `screen-${key}`, locked });
+      if (!r.cancelled) fullPicks[r.full ? 'add' : 'delete'](key);
       if (!r.cancelled) { apps = (r.apps || r.categories || r.sites) ? { apps: r.apps, categories: r.categories, sites: r.sites } : null; appsLine.textContent = appsText(apps); }
     } catch (e) { toast('Couldn’t open the app picker'); }
   };
@@ -608,6 +630,7 @@ function limitSheet(existing, draft = null) {
 
 // Save a limit (new: also its goal card) and lock or unlock its apps.
 function commitLimit(existing, c) {
+  if (fullPicks.delete(c.key)) offerAnother('limit', c.name, () => limitSheet(null, { ...c, key: uid(), name: nextName(c.name), apps: null }));
   const fields = {
     name: c.name, target: c.dailyOn ? c.minutes : null, screenEach: c.dailyOn && c.each, screenApps: c.apps,
     screenHours: c.hoursOn ? c.hours : null, screenFrom: null, screenTo: null,

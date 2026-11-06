@@ -18,23 +18,22 @@ enum LockShared {
 
 /// Putting the lock screen on apps. Every lock and limit adds to one combined list, so an app is
 /// locked whenever anything that includes it is locked (two limits with the same app never undo
-/// each other). iPhone blocks at most 50 apps (and 50 websites) per settings store and quietly
-/// ignores the rest, so the list is spread over "goalie-0", "goalie-1"… (up to 500 apps).
-/// Categories have no such limit and go in the first. iPhone is only told when the list changes:
-/// rewriting the blocks every minute made the whole phone lag.
+/// each other). iPhone blocks at most 50 apps (or websites, or categories) per settings store, so
+/// the list is spread over "goalie-apps-0", "goalie-apps-1"… (up to 500 of each). iPhone is only
+/// told when the list changes: rewriting the blocks every minute made the whole phone lag.
 enum Shield {
     private static let perStore = 50
     private static let maxStores = 10
-    private static let fingerprintKey = "shieldFingerprint"
-    private static let storesKey = "shieldStores"
+    private static let fingerprintKey = "shieldFingerprintV4"
 
-    private static func store(_ n: Int) -> ManagedSettingsStore {
-        ManagedSettingsStore(named: ManagedSettingsStore.Name("goalie-\(n)"))
+    private static func store(_ kind: String, _ n: Int) -> ManagedSettingsStore {
+        ManagedSettingsStore(named: ManagedSettingsStore.Name("goalie-\(kind)-\(n)"))
     }
 
     /// Work out everything that should be locked right now and tell iPhone, if it changed.
     static func refresh() {
         clearOldStores()
+        clearMixedStores()
         var apps = Set<ApplicationToken>(), categories = Set<ActivityCategoryToken>(), webs = Set<WebDomainToken>()
         func add(_ picked: FamilyActivitySelection) {
             apps.formUnion(picked.applicationTokens)
@@ -65,24 +64,30 @@ enum Shield {
         let fingerprint = digest.map { String(format: "%02x", $0) }.joined()
         let defaults = LockShared.defaults
         // Unchanged, and iPhone still has it (turning Screen Time access off wipes every block).
-        let first = store(0).shield
-        let wiped = first.applications == nil && first.applicationCategories == nil && first.webDomains == nil
-        let empty = appList.isEmpty && webList.isEmpty && categoryList.isEmpty
-        guard defaults.string(forKey: fingerprintKey) != fingerprint || (wiped && !empty) else { return }
+        let wiped = (!appList.isEmpty && store("apps", 0).shield.applications == nil)
+            || (!webList.isEmpty && store("webs", 0).shield.webDomains == nil)
+            || (!categoryList.isEmpty && store("cats", 0).shield.applicationCategories == nil)
+        guard defaults.string(forKey: fingerprintKey) != fingerprint || wiped else { return }
 
-        let needed = min(maxStores, max(1, (max(appList.count, webList.count) + perStore - 1) / perStore))
-        let before = defaults.object(forKey: storesKey) as? Int ?? maxStores
-        for n in 0..<needed {
-            let store = store(n)
-            let someApps = Set(appList.dropFirst(n * perStore).prefix(perStore).map { $0.token })
-            let someWebs = Set(webList.dropFirst(n * perStore).prefix(perStore).map { $0.token })
-            store.shield.applications = someApps.isEmpty ? nil : someApps
-            store.shield.webDomains = someWebs.isEmpty ? nil : someWebs
-            store.shield.applicationCategories = n == 0 && !categories.isEmpty ? .specific(categories) : nil
-            store.shield.webDomainCategories = n == 0 && !categories.isEmpty ? .specific(categories) : nil
+        // Apps, websites and categories each get their own stores of at most 50, so no store ever
+        // holds more than one list's worth (a store over iPhone's limit can be ignored altogether).
+        // Only the stores in use now or last time are touched (an app can only have so many).
+        var used = defaults.dictionary(forKey: "shieldStoreCounts") as? [String: Int] ?? [:]
+        func write<T>(_ kind: String, _ list: [T], _ apply: (ManagedSettingsStore, [T]) -> Void) {
+            let needed = min(maxStores, (list.count + perStore - 1) / perStore)
+            for n in 0..<max(needed, used[kind] ?? 0) {
+                let part = Array(list.dropFirst(n * perStore).prefix(perStore))
+                if part.isEmpty { store(kind, n).clearAllSettings() } else { apply(store(kind, n), part) }
+            }
+            used[kind] = needed
         }
-        for n in needed..<max(needed, min(before, maxStores)) { store(n).clearAllSettings() }
-        defaults.set(needed, forKey: storesKey)
+        write("apps", appList.map { $0.token }) { store, part in store.shield.applications = Set(part) }
+        write("webs", webList.map { $0.token }) { store, part in store.shield.webDomains = Set(part) }
+        write("cats", categoryList.map { $0.token }) { store, part in
+            store.shield.applicationCategories = .specific(Set(part))
+            store.shield.webDomainCategories = .specific(Set(part))
+        }
+        defaults.set(used, forKey: "shieldStoreCounts")
         defaults.set(fingerprint, forKey: fingerprintKey)
     }
 
@@ -110,6 +115,13 @@ enum Shield {
             for n in 0..<6 { ManagedSettingsStore(named: ManagedSettingsStore.Name(n == 0 ? base : "\(base)-\(n)")).clearAllSettings() }
         }
         defaults.set(true, forKey: "shieldStoresV3")
+    }
+    /// Builds 19–22 mixed apps and websites in "goalie-0"… Clear those once.
+    private static func clearMixedStores() {
+        let defaults = LockShared.defaults
+        guard !defaults.bool(forKey: "shieldStoresV4") else { return }
+        for n in 0..<maxStores { ManagedSettingsStore(named: ManagedSettingsStore.Name("goalie-\(n)")).clearAllSettings() }
+        defaults.set(true, forKey: "shieldStoresV4")
     }
 }
 
@@ -370,6 +382,26 @@ enum ScreenStorage {
     /// end, for hours that run past midnight). Part "b" belongs to the day before. A limit can have
     /// several times; each time's place goes in the name: "goalie.window.<key>.0a", ".1b"…
     static let maxTimes = 4
+    /// Since build 23, one schedule per span of time, shared by every limit with the same hours:
+    /// "goalie.hours.1380-1439" (minutes after midnight).
+    static func hoursActivity(start: Int, end: Int) -> DeviceActivityName { DeviceActivityName("goalie.hours.\(start)-\(end)") }
+    static func hoursSpan(of activity: DeviceActivityName) -> (start: Int, end: Int)? {
+        let prefix = "goalie.hours."
+        guard activity.rawValue.hasPrefix(prefix) else { return nil }
+        let ends = activity.rawValue.dropFirst(prefix.count).split(separator: "-").compactMap { Int($0) }
+        return ends.count == 2 ? (ends[0], ends[1]) : nil
+    }
+    /// The same-day spans a time is scheduled in: "a" (start to end, or start to 11:59 PM) and "b"
+    /// (midnight to the end, for hours past midnight). A span under 15 minutes, iPhone's shortest,
+    /// is left out.
+    static func parts(of time: ScreenHours) -> [(part: String, start: Int, end: Int)] {
+        guard let window = time.window else { return [] }
+        if window.start < window.end { return [(part: "a", start: window.start, end: window.end)] }
+        var list: [(part: String, start: Int, end: Int)] = []
+        if 23 * 60 + 59 - window.start >= 15 { list.append((part: "a", start: window.start, end: 23 * 60 + 59)) }
+        if window.end >= 15 { list.append((part: "b", start: 0, end: window.end)) }
+        return list
+    }
     static func windowActivity(_ key: String, time: Int, part: String) -> DeviceActivityName {
         DeviceActivityName("goalie.window.\(key).\(time)\(part)")
     }

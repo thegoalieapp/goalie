@@ -13,7 +13,15 @@ import Foundation
 class GoalieMonitor: DeviceActivityMonitor {
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
-        if let (key, n, part) = ScreenStorage.key(ofWindow: activity) {
+        if let span = ScreenStorage.hoursSpan(of: activity) {
+            // Locked hours start, for every limit with these hours, on that time's days. The
+            // after-midnight part ("b") belongs to the night before.
+            for (key, n, time, part) in Self.times(in: span) {
+                let day = part == "b" ? Date().addingTimeInterval(-86_400) : Date()
+                if time.appliesOn(day) { ScreenStorage.setWindowLocked(key, time: n, true) }
+            }
+            Shield.refresh()
+        } else if let (key, n, part) = ScreenStorage.key(ofWindow: activity) { // (before build 23)
             // One of the locked-hours times starts: lock, if it's one of that time's days. The
             // after-midnight part ("b") belongs to the night before.
             let day = part == "b" ? Date().addingTimeInterval(-86_400) : Date()
@@ -32,12 +40,32 @@ class GoalieMonitor: DeviceActivityMonitor {
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
-        if let (key, n, part) = ScreenStorage.key(ofWindow: activity) {
+        if let span = ScreenStorage.hoursSpan(of: activity) {
+            for (key, n, time, part) in Self.times(in: span) {
+                // Hours that run past midnight stay locked from 11:59 PM into the morning part.
+                if part == "a", let window = time.window, window.start > window.end, window.end >= 15 { continue }
+                ScreenStorage.setWindowLocked(key, time: n, false)
+            }
+            Shield.refresh()
+        } else if let (key, n, part) = ScreenStorage.key(ofWindow: activity) { // (before build 23)
             // Hours that run past midnight stay locked from 11:59 PM into the morning part.
             if part == "a", let window = Self.time(key, n)?.window, window.start > window.end, window.end >= 15 { return }
             ScreenStorage.setWindowLocked(key, time: n, false)
             Shield.refresh()
         }
+    }
+
+    /// Every limit's locked-hours time scheduled in this span, and which part of it the span is.
+    private static func times(in span: (start: Int, end: Int)) -> [(key: String, n: Int, time: ScreenHours, part: String)] {
+        var found: [(key: String, n: Int, time: ScreenHours, part: String)] = []
+        for goal in ScreenStorage.goals() {
+            for (n, time) in goal.times.prefix(ScreenStorage.maxTimes).enumerated() {
+                for p in ScreenStorage.parts(of: time) where p.start == span.start && p.end == span.end {
+                    found.append((key: goal.key, n: n, time: time, part: p.part))
+                }
+            }
+        }
+        return found
     }
 
     /// A limit's locked-hours time, by its place.

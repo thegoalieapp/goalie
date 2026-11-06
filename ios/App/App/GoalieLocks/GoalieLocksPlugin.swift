@@ -2,7 +2,8 @@
 //
 //   authorization()          → { status }   approved / denied / notDetermined
 //   requestAuthorization()   → { status }   "Allow Goalie to use Screen Time?"
-//   pickApps({ id, locked }) → { apps, categories, sites, cancelled }   Apple's app picker
+//   pickApps({ id, locked }) → { apps, categories, sites, full, cancelled }   Apple's app picker
+//                              (up to 50 of each; full: one of them is at 50)
 //   showApps({ id })         a list of what's picked, with names and icons (drawn by iPhone)
 //   update({ json })         saves every lock (from Goalie) and locks or unlocks its apps
 //   remove({ id })           deletes a lock and unlocks its apps
@@ -77,7 +78,9 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
                     LockShared.defaults.removeObject(forKey: "screenSig-\(id.dropFirst("screen-".count))")
                 }
                 host?.dismiss(animated: true)
-                call.resolve(Self.counts(chosen))
+                var result = Self.counts(chosen)
+                result["full"] = AppPickerView.isFull(chosen)
+                call.resolve(result)
             }, onCancel: {
                 host?.dismiss(animated: true)
                 var result = Self.counts(before)
@@ -142,7 +145,6 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             ScreenStorage.setLimitLocked(gone.key, false)
             ScreenStorage.clearWindowLocks(gone.key)
             LockShared.defaults.removeObject(forKey: "screenSig-\(gone.key)")
-            LockShared.defaults.removeObject(forKey: "windowSig-\(gone.key)")
         }
         ScreenStorage.saveGoals(goals)
         var problems: [String: String] = [:] // schedules iPhone refused, shown on the limit's card
@@ -182,8 +184,13 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             // at their own limit; Shield.refresh() reads those.)
             ScreenStorage.setLimitLocked(goal.key, goal.lock && goal.limit > 0 && !each && goal.appliesOn(Date())
                 && ScreenStorage.minutesToday(goal.key) >= goal.limit)
-            if let problem = Self.scheduleWindow(goal, picked: picked, center: center) { problems[goal.key] = problem }
+            // Locked hours: locked or not right now, whichever the clock says.
+            ScreenStorage.clearWindowLocks(goal.key)
+            for (n, time) in goal.times.prefix(ScreenStorage.maxTimes).enumerated() where time.inWindow() {
+                ScreenStorage.setWindowLocked(goal.key, time: n, true)
+            }
         }
+        for (key, problem) in Self.scheduleHours(goals, center: center) where problems[key] == nil { problems[key] = problem }
         Shield.refresh() // everything above, in one go (only told to iPhone if something changed)
         var usage: [String: Any] = [:]
         for (key, days) in ScreenStorage.usage() {
@@ -196,50 +203,41 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Locked hours: iPhone wakes the re-locker when they start and end, every day (even when they
-    /// run past midnight); and right now the apps are locked or not, whichever the clock says.
-    /// Returns why iPhone wouldn't schedule them, if it wouldn't. Its schedules have to start and end
-    /// on the same day, so hours that run past midnight go in two parts: start to 11:59 PM, then
-    /// midnight to the end (a part under 15 minutes, iPhone's shortest, is left out). A limit can have
-    /// several times, each scheduled the same way under its own names.
-    private static func scheduleWindow(_ goal: ScreenGoal, picked: FamilyActivitySelection, center: DeviceActivityCenter) -> String? {
-        let all = ScreenStorage.windowActivities(goal.key)
-        let sigKey = "windowSig-\(goal.key)"
-        let times = Array(goal.times.prefix(ScreenStorage.maxTimes))
-        guard times.contains(where: { $0.window != nil }) else {
-            center.stopMonitoring(all)
-            ScreenStorage.clearWindowLocks(goal.key)
-            LockShared.defaults.removeObject(forKey: sigKey)
-            return nil
-        }
-        var parts: [(name: DeviceActivityName, start: Int, end: Int)] = []
-        for (n, time) in times.enumerated() {
-            guard let window = time.window else { continue }
-            if window.start < window.end {
-                parts.append((ScreenStorage.windowActivity(goal.key, time: n, part: "a"), window.start, window.end))
-            } else {
-                if 23 * 60 + 59 - window.start >= 15 { parts.append((ScreenStorage.windowActivity(goal.key, time: n, part: "a"), window.start, 23 * 60 + 59)) }
-                if window.end >= 15 { parts.append((ScreenStorage.windowActivity(goal.key, time: n, part: "b"), 0, window.end)) }
-            }
-        }
-        var problem: String?
-        let sig = "v3-" + times.map { "\($0.from)-\($0.to)" }.joined(separator: ",")
-        if LockShared.defaults.string(forKey: sigKey) != sig || parts.contains(where: { !center.activities.contains($0.name) }) {
-            center.stopMonitoring(all)
-            for part in parts {
-                do {
-                    try center.startMonitoring(part.name, during: DeviceActivitySchedule(
-                        intervalStart: DateComponents(hour: part.start / 60, minute: part.start % 60),
-                        intervalEnd: DateComponents(hour: part.end / 60, minute: part.end % 60),
-                        repeats: true))
-                } catch {
-                    problem = "Locked hours couldn’t be scheduled (\(error.localizedDescription))"
+    /// run past midnight). Each span of time has one schedule, shared by every limit with the same
+    /// hours: iPhone only lets an app run so many schedules, and one per limit ran out. Returns, by
+    /// limit, why iPhone wouldn't schedule its hours.
+    private static func scheduleHours(_ goals: [ScreenGoal], center: DeviceActivityCenter) -> [String: String] {
+        var needed: [String: (start: Int, end: Int, keys: Set<String>)] = [:]
+        for goal in goals where ScreenStorage.selection(goal.key) != nil {
+            for time in goal.times.prefix(ScreenStorage.maxTimes) {
+                for part in ScreenStorage.parts(of: time) {
+                    let name = ScreenStorage.hoursActivity(start: part.start, end: part.end).rawValue
+                    needed[name, default: (start: part.start, end: part.end, keys: [])].keys.insert(goal.key)
                 }
             }
-            if problem == nil { LockShared.defaults.set(sig, forKey: sigKey) }
         }
-        ScreenStorage.clearWindowLocks(goal.key)
-        for (n, time) in times.enumerated() where time.inWindow() { ScreenStorage.setWindowLocked(goal.key, time: n, true) }
-        return problem
+        // Hours no limit uses any more, and every limit's own schedules from builds before 23.
+        let stale = center.activities.filter {
+            $0.rawValue.hasPrefix("goalie.window.") || ($0.rawValue.hasPrefix("goalie.hours.") && needed[$0.rawValue] == nil)
+        }
+        if !stale.isEmpty { center.stopMonitoring(stale) }
+        var problems: [String: String] = [:]
+        let running = Set(center.activities.map(\.rawValue))
+        for (name, span) in needed where !running.contains(name) {
+            do {
+                try center.startMonitoring(DeviceActivityName(name), during: DeviceActivitySchedule(
+                    intervalStart: DateComponents(hour: span.start / 60, minute: span.start % 60),
+                    intervalEnd: DateComponents(hour: span.end / 60, minute: span.end % 60),
+                    repeats: true))
+            } catch {
+                let full = "\(error)".contains("excessiveActivities")
+                let text = full
+                    ? "iPhone has no room for more schedules. Use the same locked hours as another limit, or remove a limit or a time"
+                    : "Locked hours couldn’t be scheduled (\(error.localizedDescription))"
+                for key in span.keys { problems[key] = text }
+            }
+        }
+        return problems
     }
 
     /// "These apps reached this many minutes today", counting use from before Goalie started
@@ -293,20 +291,48 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 }
 
-/// Apple's app picker, with Cancel and Done.
+/// Apple's app picker, with Cancel and Done. One lock or limit holds up to 50 apps, 50 websites
+/// and 50 categories (iPhone's own limit for each list): past that, Done waits until some are
+/// removed. Apple's picker can't stop the ticking itself.
 private struct AppPickerView: View {
+    static let most = 50
     @State var selection: FamilyActivitySelection
     let onDone: (FamilyActivitySelection) -> Void
     let onCancel: () -> Void
 
+    static func isFull(_ s: FamilyActivitySelection) -> Bool {
+        s.applicationTokens.count >= most || s.webDomainTokens.count >= most || s.categoryTokens.count >= most
+    }
+    /// "Remove 11 apps and 14 websites to continue." (nothing when it fits)
+    private var tooMany: String? {
+        let counts = [(selection.applicationTokens.count, "app"), (selection.webDomainTokens.count, "website"),
+                      (selection.categoryTokens.count, "category")]
+        let over = counts.filter { $0.0 > Self.most }.map { item -> String in
+            let n = item.0 - Self.most
+            let plural = item.1 == "category" ? "categories" : item.1 + "s"
+            return "\(n) " + (n == 1 ? item.1 : plural)
+        }
+        return over.isEmpty ? nil : "That’s more than one lock can hold. Remove \(over.joined(separator: " and ")) to continue. You can lock the rest with another one."
+    }
+
     var body: some View {
         NavigationView {
-            FamilyActivityPicker(selection: $selection)
+            FamilyActivityPicker(headerText: "Up to 50 apps, 50 websites and 50 categories", selection: $selection)
                 .navigationTitle("Choose apps to lock")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
-                    ToolbarItem(placement: .confirmationAction) { Button("Done") { onDone(selection) } }
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { onDone(selection) }.disabled(tooMany != nil) }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    if let tooMany {
+                        Text(tooMany)
+                            .font(.callout.weight(.semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(Color.red)
+                    }
                 }
         }
     }
