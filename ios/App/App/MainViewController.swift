@@ -4,5 +4,6 @@ import Capacitor
 class MainViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(GoalieLocksPlugin())
+        bridge?.registerPluginInstance(GoalieWidgetsPlugin())
     }
 }

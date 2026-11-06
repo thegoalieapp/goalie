@@ -207,6 +207,7 @@ function save() {
   window.goalieCloud?.changed(); // signed in: back up and sync (account.js)
   window.goalieReminders?.(); // App Store app: keep iPhone reminders in step with the goals
   window.goalieLocks?.(); // App Store app: lock or unlock apps as goals get done (locks.js)
+  window.goalieWidgets?.(); // App Store app: keep the Home Screen widgets up to date
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -4540,3 +4541,90 @@ function startupPopups() {
   });
 }
 setTimeout(startupPopups, 1500);
+
+/* ---------- Widgets (App Store app) ----------
+   The Home Screen and Lock Screen widgets (ios/App/GoalieWidget) can't read Goalie's data, so after
+   each change Goalie hands them a small summary through the GoalieWidgets plugin: today's goals,
+   streaks, this month's calendar and the to-do list. It stays on the phone. Each goal says when its
+   period restarts, so a widget can reset it at midnight by itself. Tapping a widget opens
+   goalie://goal/<id>, goalie://calendar, goalie://todo or goalie://streaks here. */
+const widgetsPlugin = () => window.Capacitor?.Plugins?.GoalieWidgets;
+const widgetInk = t => t.textColor || (inkClass(t.color) === 'on-light' ? '#1c2a4a' : '#ffffff');
+
+function widgetSnapshot() {
+  const now = new Date();
+  const goals = state.tallies
+    .filter(t => (!byDate(t) || now.getTime() < dueEndMs(t)) && measuredWeekdays(t).includes(now.getDay()))
+    .slice(0, 24)
+    .map(t => {
+      const from = periodStart(t.reset, now), to = nextPeriodStart(t.reset, from);
+      const count = countedEntries(t).reduce((s, e) => (e.ts >= from.getTime() && e.ts < to.getTime() ? s + e.value : s), 0);
+      const text = n => (isCheck(t) ? (n >= 1 ? 'Done' : 'Not yet') : t.target ? `${num(t, n)}/${num(t, t.target)}` : num(t, n));
+      return {
+        id: t.id, name: t.name, color: t.color || DEFAULT_COLOR, ink: widgetInk(t),
+        kind: isCheck(t) ? 'check' : t.direction === 'decrease' ? 'down' : 'up',
+        count, target: t.target > 0 ? t.target : 0, countText: text(count), zeroText: text(0),
+        done: goalReached(t, count), doneAtZero: goalReached(t, 0),
+        period: byDate(t) ? `BY ${longDate(t.dueDate).toUpperCase()}` : PERIOD_LABEL[t.reset] || 'TODAY',
+        resetsAt: byDate(t) || t.reset === 'never' ? null : to.getTime(),
+      };
+    });
+  const streaks = state.tallies.map(t => ({ t, n: goalStreak(t) })).filter(x => x.n >= 1).sort((a, b) => b.n - a.n).slice(0, 8)
+    .map(({ t, n }) => ({ id: t.id, name: t.name, color: t.color || DEFAULT_COLOR, ink: widgetInk(t), n, text: streakLine(t, n) }));
+  // This month, colored like Stats → Calendar (daily goals).
+  const was = calState.type;
+  calState.type = 'day';
+  const daily = state.tallies.filter(t => calendarShows(t) && !byDate(t) && t.reset === 'day' && (t.target > 0 || isCheck(t)));
+  const days = [];
+  try {
+    for (let d = new Date(now.getFullYear(), now.getMonth(), 1); d.getMonth() === now.getMonth(); d = addDays(d, 1)) {
+      const color = pctColor(periodPct(daily, d.getTime(), addDays(d, 1).getTime()));
+      days.push({ day: d.getDate(), color: color === OVER ? '#ffffff' : color });
+    }
+  } finally { calState.type = was; }
+  const todos = state.todos.filter(t => !t.done)
+    .sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0) || (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0))
+    .slice(0, 12).map(t => ({ id: t.id, title: t.title, section: t.section || null, priority: !!t.priority }));
+  return {
+    name: (state.settings.name || '').trim() || null, goals, streaks, todos, todosLeft: state.todos.filter(t => !t.done).length,
+    calendar: { label: `${MONTH_LONG[now.getMonth()]} ${now.getFullYear()}`, year: now.getFullYear(), month: now.getMonth() + 1, weekStart: state.settings.weekStart || 0, days },
+  };
+}
+
+// After changes (save calls this), when Goalie goes to the background, and each minute (a new day).
+let widgetTimer = null, widgetSent = '';
+function syncWidgets({ now = false } = {}) {
+  if (!widgetsPlugin()) return;
+  clearTimeout(widgetTimer);
+  widgetTimer = setTimeout(() => {
+    let json;
+    try { json = JSON.stringify(widgetSnapshot()); } catch (e) { console.warn('Goalie widgets:', e); return; }
+    if (json === widgetSent) return;
+    widgetSent = json;
+    widgetsPlugin().update({ json }).catch(() => { widgetSent = ''; });
+  }, now ? 0 : 1000);
+}
+
+// A widget was tapped: show what it was showing.
+function openFromWidget(url) {
+  const m = /^goalie:\/\/([a-z]+)\/?([^?#]*)/.exec(url || '');
+  if (!m) return;
+  closeSheet();
+  $$('.screen.modal.active').forEach(s => s.classList.remove('active'));
+  if (editMode) setEditMode(false);
+  if (m[1] === 'calendar') { statsState.view = 'calendar'; calState.type = 'day'; calState.offset = 0; $('#btn-stats').click(); return; }
+  if (m[1] === 'todo' && state.settings.todoList !== false) { $('#btn-todo').click(); return; }
+  setHomeDay(null);
+  const t = m[1] === 'goal' && state.tallies.find(x => x.id === decodeURIComponent(m[2]));
+  if (!t) return;
+  renderToday(t.id);
+  $(`#tally-list [data-id="${CSS.escape(t.id)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+if (isNativeApp && widgetsPlugin()) {
+  window.goalieWidgets = () => syncWidgets(); // save() calls this
+  storageReady.then(() => syncWidgets({ now: true }));
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') syncWidgets({ now: true }); });
+  setInterval(() => syncWidgets(), 60000);
+  widgetsPlugin().addListener('openUrl', e => storageReady.then(() => openFromWidget(e.url)));
+}

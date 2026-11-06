@@ -66,6 +66,14 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
+			<string>com.thegoalieapp.goalie.widgets</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>goalie</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
 			<string>Google sign-in</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
