@@ -442,44 +442,225 @@ private struct CalendarView: View {
 
 // MARK: - To-do list
 
+/// Which list the to-do widget shows: every section, one section, or the priority list.
+struct TodoListEntity: AppEntity {
+    let id: String          // "all", "prio", "none" (no section) or "sec:<name>"
+    let name: String
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "List"
+    static var defaultQuery = TodoListQuery()
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+
+    static let all = TodoListEntity(id: "all", name: "All lists")
+    static let priority = TodoListEntity(id: "prio", name: "Priority list")
+}
+
+struct TodoListQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [TodoListEntity] { Self.choices().filter { identifiers.contains($0.id) } }
+    func suggestedEntities() async throws -> [TodoListEntity] { Self.choices() }
+    func defaultResult() async -> TodoListEntity? { .all }
+
+    static func choices() -> [TodoListEntity] {
+        let sections = (WSnapshot.load()?.todoSections ?? []).map { sec in
+            sec.name.map { TodoListEntity(id: "sec:\($0)", name: $0) } ?? TodoListEntity(id: "none", name: "No section")
+        }
+        return [.all] + sections + [.priority]
+    }
+}
+
+struct PickTodoListIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Choose a list"
+    static var description = IntentDescription("Show your to-dos, one section, or the priority list.")
+
+    @Parameter(title: "List")
+    var list: TodoListEntity?
+}
+
+struct TodoEntry: TimelineEntry {
+    let date: Date
+    let snapshot: WSnapshot?
+    let list: String
+}
+
+struct TodoProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> TodoEntry { TodoEntry(date: Date(), snapshot: .sample, list: "all") }
+
+    func snapshot(for configuration: PickTodoListIntent, in context: Context) async -> TodoEntry {
+        TodoEntry(date: Date(), snapshot: WSnapshot.load() ?? .sample, list: configuration.list?.id ?? "all")
+    }
+
+    func timeline(for configuration: PickTodoListIntent, in context: Context) async -> Timeline<TodoEntry> {
+        // To-dos only change in Goalie, which redraws the widget when they do.
+        Timeline(entries: [TodoEntry(date: Date(), snapshot: WSnapshot.load(), list: configuration.list?.id ?? "all")], policy: .never)
+    }
+}
+
 struct TodoWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "GoalieTodo", provider: GoalieProvider()) { entry in
+        AppIntentConfiguration(kind: "GoalieTodo", intent: PickTodoListIntent.self, provider: TodoProvider()) { entry in
             TodoView(entry: entry).goalieBackground()
         }
         .configurationDisplayName("To-do list")
-        .description("What’s left on your to-do list.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        .description("Your to-dos, one section, or the priority list. Press and hold the widget to choose.")
+        .supportedFamilies([.systemMedium, .systemLarge, .systemExtraLarge])
+    }
+}
+
+/// The priority list's four groups, as the to-do page shows them.
+private enum Quadrant {
+    static let tag = [1: "Q1 · HIGH", 2: "Q2 · MEDIUM", 3: "Q3 · LOW", 4: "Q4 · NONE"]
+    static let title = [1: "HIGH PRIORITY", 2: "MEDIUM PRIORITY", 3: "LOW PRIORITY", 4: "NO PRIORITY"]
+    static let about = [1: "Q1 · Important & urgent", 2: "Q2 · Important, not urgent", 3: "Q3 · Urgent, not important", 4: "Q4 · Not urgent, not important"]
+    static let bar = [1: "#e5484d", 2: "#f0a020", 3: "#4aa8e2", 4: "#9aa0a8"]
+    /// (background, text) for the tag, light and dark.
+    static func colors(_ q: Int, dark: Bool) -> (String, String) {
+        switch (q, dark) {
+        case (1, false): return ("#fde1e2", "#b4232a")
+        case (2, false): return ("#fdeccc", "#9a5b00")
+        case (3, false): return ("#dcedfb", "#1d5f99")
+        case (1, true): return ("#4a1d21", "#ffb3b6")
+        case (2, true): return ("#4a3510", "#ffd38a")
+        case (3, true): return ("#14304a", "#a9d6f5")
+        default: return dark ? ("#1f2838", "#9aa0a8") : ("#e8e8e9", "#6b7280")
+        }
+    }
+}
+
+private struct TodoTag: View {
+    @Environment(\.colorScheme) private var scheme
+    let text: String
+    let quadrant: Int?
+
+    var body: some View {
+        let (back, ink) = quadrant.map { Quadrant.colors($0, dark: scheme == .dark) } ?? Quadrant.colors(4, dark: scheme == .dark)
+        Text(text)
+            .font(.system(size: 9, weight: .heavy, design: .rounded))
+            .tracking(0.4)
+            .foregroundColor(Color(hex: ink))
+            .padding(.horizontal, 6).padding(.vertical, 1.5)
+            .background(Capsule().fill(Color(hex: back)))
+            .lineLimit(1)
+    }
+}
+
+/// A to-do: its empty check circle, title, and tag (priority on the lists; section on the priority list).
+private struct TodoRow: View {
+    let todo: WTodo
+    var ink: Color? = nil
+    var showSection = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 9) {
+                Circle().stroke(ink?.opacity(0.7) ?? Color.secondary, lineWidth: 1.6).frame(width: 16, height: 16)
+                Text(todo.title).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundColor(ink ?? .primary).lineLimit(1)
+                Spacer(minLength: 4)
+                if showSection, let section = todo.section {
+                    TodoTag(text: section.uppercased(), quadrant: nil)
+                } else if let q = todo.quadrant, let tag = Quadrant.tag[q] {
+                    TodoTag(text: tag, quadrant: q)
+                }
+            }
+            .padding(.vertical, 4.5)
+            Rectangle().fill((ink ?? Color.secondary).opacity(0.25)).frame(height: 0.75)
+        }
     }
 }
 
 private struct TodoView: View {
     @Environment(\.widgetFamily) private var family
-    let entry: GoalieEntry
+    let entry: TodoEntry
+
+    /// How many lines fit (a heading counts as one).
+    private var room: Int { family == .systemMedium ? 5 : family == .systemLarge ? 13 : 13 }
 
     var body: some View {
-        let todos = entry.snapshot?.todos ?? []
-        let room = family == .systemLarge ? 10 : 4
-        VStack(alignment: .leading, spacing: 8) {
-            Header(title: "TO-DO", detail: entry.snapshot.map { "\($0.todosLeft) left" })
-            if entry.snapshot == nil {
-                Note(text: "Open Goalie to see your to-dos here.")
-            } else if todos.isEmpty {
-                Note(text: "All done!")
+        VStack(alignment: .leading, spacing: 6) {
+            if let snapshot = entry.snapshot {
+                if entry.list == "prio" { priority(snapshot) } else { lists(snapshot) }
             } else {
-                ForEach(todos.prefix(room)) { todo in
+                Note(text: "Open Goalie to see your to-dos here.")
+            }
+            Spacer(minLength: 0)
+        }
+        .widgetURL(URL(string: entry.list == "prio" ? "goalie://todo/priority" : "goalie://todo"))
+    }
+
+    private func heading(_ name: String, count: Int, ink: Color? = nil) -> some View {
+        HStack(spacing: 6) {
+            Text(name).font(.system(size: 11, weight: .heavy, design: .rounded)).tracking(1).foregroundColor(ink ?? .primary).lineLimit(1)
+            Text("\(count)").font(.system(size: 10, weight: .heavy, design: .rounded)).foregroundColor(ink ?? .primary)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(Capsule().fill((ink ?? Color.secondary).opacity(0.18)))
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func lists(_ snapshot: WSnapshot) -> some View {
+        let all = snapshot.todoSections ?? []
+        let sections = entry.list == "all" ? all
+            : entry.list == "none" ? all.filter { $0.name == nil }
+            : all.filter { $0.name.map { "sec:\($0)" } == entry.list }
+        let plan = fit(sections.map { $0.items.count })
+        if sections.allSatisfy({ $0.items.isEmpty }) {
+            Note(text: sections.isEmpty ? "This list isn’t in Goalie any more. Press and hold to choose another." : "All done!")
+        } else {
+            ForEach(Array(sections.enumerated()), id: \.offset) { i, sec in
+                if plan[i] >= 0 {
+                    let ink = sec.color != nil ? Color(hex: sec.ink ?? "#1c2a4a") : nil
+                    VStack(alignment: .leading, spacing: 2) {
+                        heading(sec.name?.uppercased() ?? "NO SECTION", count: sec.items.count, ink: ink)
+                        ForEach(sec.items.prefix(plan[i])) { todo in TodoRow(todo: todo, ink: ink) }
+                        if sec.items.count > plan[i] && plan[i] > 0 {
+                            Text("+\(sec.items.count - plan[i]) more").font(.system(size: 10, weight: .semibold, design: .rounded)).foregroundColor(ink ?? .secondary)
+                        }
+                    }
+                    .padding(sec.color != nil ? 7 : 0)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(sec.color.map { Color(hex: $0) } ?? Color.clear))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func priority(_ snapshot: WSnapshot) -> some View {
+        let groups = (snapshot.todoPriority ?? []).filter { !$0.items.isEmpty }
+        let plan = fit(groups.map { $0.items.count })
+        if groups.isEmpty {
+            Note(text: "No prioritized to-dos")
+        } else {
+            ForEach(Array(groups.enumerated()), id: \.offset) { i, group in
+                if plan[i] >= 0 {
                     HStack(spacing: 8) {
-                        Circle().stroke(Color.secondary, lineWidth: 1.5).frame(width: 14, height: 14)
-                        Text(todo.title).font(.system(size: 13, weight: .medium, design: .rounded)).lineLimit(1)
-                        Spacer(minLength: 4)
-                        if todo.priority == true {
-                            Image(systemName: "star.fill").font(.system(size: 10)).foregroundColor(.orange)
+                        RoundedRectangle(cornerRadius: 2).fill(Color(hex: Quadrant.bar[group.quadrant] ?? "#9aa0a8")).frame(width: 3.5)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                heading(Quadrant.title[group.quadrant] ?? "", count: group.items.count)
+                                if family != .systemMedium {
+                                    Text(Quadrant.about[group.quadrant] ?? "").font(.system(size: 9, weight: .semibold, design: .rounded)).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            ForEach(group.items.prefix(plan[i])) { todo in TodoRow(todo: todo, showSection: true) }
+                            if group.items.count > plan[i] && plan[i] > 0 {
+                                Text("+\(group.items.count - plan[i]) more").font(.system(size: 10, weight: .semibold, design: .rounded)).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
             }
-            Spacer(minLength: 0)
         }
-        .widgetURL(URL(string: "goalie://todo"))
+    }
+
+    /// How many to-dos of each group fit: each shown group takes a line for its heading; -1 = no room.
+    private func fit(_ counts: [Int]) -> [Int] {
+        var left = room
+        return counts.map { count in
+            guard count > 0, left >= 2 else { return -1 }
+            left -= 1
+            let take = min(count, left)
+            left -= take
+            return take
+        }
     }
 }

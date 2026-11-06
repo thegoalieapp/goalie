@@ -4582,11 +4582,19 @@ function widgetSnapshot() {
       days.push({ day: d.getDate(), color: color === OVER ? 'gold' : color }); // gold: over 100% (Average progress)
     }
   } finally { calState.type = was; }
-  const todos = state.todos.filter(t => !t.done)
-    .sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0) || (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0))
-    .slice(0, 12).map(t => ({ id: t.id, title: t.title, section: t.section || null, priority: !!t.priority }));
+  // The to-do page: its sections in order (with their colors), and the priority list's four groups.
+  const open = state.todos.filter(t => !t.done);
+  const todoItem = t => ({ id: t.id, title: t.title, section: t.section || null, quadrant: t.priority && QUADRANTS[t.quadrant] ? t.quadrant : null });
+  const sectionColors = state.settings.todoSectionColors || {}, sectionInks = state.settings.todoSectionTextColors || {};
+  const todoSections = [...todoSectionNames(), ''].map(name => ({
+    name: name || null,
+    color: (name && sectionColors[name]) || null,
+    ink: (name && (sectionInks[name] || (sectionColors[name] ? widgetInk({ color: sectionColors[name] }) : null))) || null,
+    items: sortTodos(open.filter(t => (t.section || '') === name)).slice(0, 30).map(todoItem),
+  })).filter(sec => sec.name || sec.items.length);
+  const todoPriority = [1, 2, 3, 4].map(n => ({ quadrant: n, items: sortTodos(open.filter(t => t.priority && t.quadrant === n)).slice(0, 30).map(todoItem) }));
   return {
-    name: (state.settings.name || '').trim() || null, goals, streaks, todos, todosLeft: state.todos.filter(t => !t.done).length,
+    name: (state.settings.name || '').trim() || null, goals, streaks, todoSections, todoPriority,
     calendar: { label: `${MONTH_LONG[now.getMonth()]} ${now.getFullYear()}`, year: now.getFullYear(), month: now.getMonth() + 1, weekStart: state.settings.weekStart || 0, days },
   };
 }
@@ -4613,7 +4621,7 @@ function openFromWidget(url) {
   $$('.screen.modal.active').forEach(s => s.classList.remove('active'));
   if (editMode) setEditMode(false);
   if (m[1] === 'calendar') { statsState.view = 'calendar'; calState.type = 'day'; calState.offset = 0; $('#btn-stats').click(); return; }
-  if (m[1] === 'todo' && state.settings.todoList !== false) { $('#btn-todo').click(); return; }
+  if (m[1] === 'todo' && state.settings.todoList !== false) { todoView = m[2] === 'priority' ? 'priority' : 'lists'; $('#btn-todo').click(); return; }
   setHomeDay(null);
   const t = m[1] === 'goal' && state.tallies.find(x => x.id === decodeURIComponent(m[2]));
   if (!t) return;

@@ -9,8 +9,8 @@ struct WSnapshot: Codable {
     var name: String?
     var goals: [WGoal]
     var streaks: [WStreak]
-    var todos: [WTodo]
-    var todosLeft: Int
+    var todoSections: [WTodoSection]?
+    var todoPriority: [WTodoQuadrant]?
     var calendar: WCalendar?
 
     static let group = "group.com.thegoalieapp.goalie"
@@ -47,8 +47,17 @@ struct WSnapshot: Codable {
             WStreak(id: "2", name: "Read a chapter", color: "#60a5fa", ink: "#1c2a4a", n: 12, text: "12 days in a row"),
             WStreak(id: "1", name: "Morning run", color: "#fb923c", ink: "#1c2a4a", n: 5, text: "5 days in a row"),
         ],
-        todos: [WTodo(id: "a", title: "Call the dentist", section: nil, priority: true), WTodo(id: "b", title: "Buy running shoes", section: "Errands", priority: false)],
-        todosLeft: 2,
+        todoSections: [
+            WTodoSection(name: "Errands", color: nil, ink: nil, items: [
+                WTodo(id: "a", title: "Call the dentist", section: "Errands", quadrant: 1),
+                WTodo(id: "b", title: "Buy running shoes", section: "Errands", quadrant: nil)]),
+            WTodoSection(name: "Home", color: nil, ink: nil, items: [WTodo(id: "c", title: "Water the plants", section: "Home", quadrant: 2)]),
+        ],
+        todoPriority: [
+            WTodoQuadrant(quadrant: 1, items: [WTodo(id: "a", title: "Call the dentist", section: "Errands", quadrant: 1)]),
+            WTodoQuadrant(quadrant: 2, items: [WTodo(id: "c", title: "Water the plants", section: "Home", quadrant: 2)]),
+            WTodoQuadrant(quadrant: 3, items: []), WTodoQuadrant(quadrant: 4, items: []),
+        ],
         calendar: nil)
 }
 
@@ -100,7 +109,21 @@ struct WTodo: Codable, Identifiable {
     var id: String
     var title: String
     var section: String?
-    var priority: Bool?
+    var quadrant: Int?      // 1–4 on the priority list (Q1 high … Q4 none), or none
+}
+
+/// A section of the to-do page (none: to-dos with no section), with its own colors if it has them.
+struct WTodoSection: Codable {
+    var name: String?
+    var color: String?
+    var ink: String?
+    var items: [WTodo]
+}
+
+/// One of the priority list's four groups.
+struct WTodoQuadrant: Codable {
+    var quadrant: Int
+    var items: [WTodo]
 }
 
 struct WCalendar: Codable {
