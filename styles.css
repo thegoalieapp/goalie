@@ -1922,3 +1922,4 @@ html[data-theme="dark"] .see-apps { color: #8fb4ff; }
 .check-blocking { display: block; margin: 18px auto 4px; background: none; border: 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); text-decoration: underline; cursor: pointer; }
 .check-rows { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
 .check-row { display: flex; flex-direction: column; gap: 2px; font-size: 14px; overflow-wrap: anywhere; }
+.sheet-btn.test-on { background: #e5484d; color: #fff; }

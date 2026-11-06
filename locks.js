@@ -435,9 +435,9 @@ function renderLimits(box) {
 
 // "Check blocking": what the phone side thinks should be locked and what iPhone is holding, in
 // words, plus a button that writes every block again.
-async function checkBlocking(reapply = false) {
+async function checkBlocking(reapply = false, test = {}) {
   let r;
-  try { r = await locksPlugin().checkBlocking({ reapply }); } catch (e) { toast('Couldn’t check blocking'); return; }
+  try { r = await locksPlugin().checkBlocking({ reapply, ...test }); } catch (e) { toast('Couldn’t check blocking'); return; }
   const s = r.shield || {};
   const yes = b => (b ? 'yes' : 'no');
   const what = (a, w, c) => appsText({ apps: a, sites: w, categories: c }).replace('No apps chosen yet', 'nothing');
@@ -456,8 +456,17 @@ async function checkBlocking(reapply = false) {
     el('p', { class: 'note' }, 'What Goalie has told iPhone to lock. If a screenshot of this would help, send one.'),
     el('div', { class: 'hist check-rows' }, list.map(([k, v]) => el('div', { class: 'check-row' }, el('strong', {}, k), el('span', {}, v)))),
     el('button', { class: 'sheet-btn primary', onclick: () => { closeSheet(); setTimeout(() => checkBlocking(true), 300); } }, 'Lock again now'),
+    // Temporary, while testing App Library search (comes out before the App Store version).
+    el('div', { class: 'sheet-label' }, 'TESTING APP LIBRARY SEARCH'),
+    el('p', { class: 'note' }, 'Turn one on, try searching, then turn it off again. Categories you picked won’t lock while it’s on.'),
+    testSwitch('Leave out categories', r.noCategories, on => ({ noCategories: on })),
+    testSwitch('Leave out category websites', r.noCategoryWebs, on => ({ noCategoryWebs: on })),
     el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Done'),
   );
+}
+function testSwitch(label, on, change) {
+  return el('button', { type: 'button', class: `sheet-btn${on ? ' test-on' : ''}`, onclick: () => { closeSheet(); setTimeout(() => checkBlocking(false, change(!on)), 300); } },
+    `${label}: ${on ? 'ON' : 'OFF'}`);
 }
 
 // "1 hr 30 min", "45 min", "2 hr".

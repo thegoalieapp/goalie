@@ -208,6 +208,9 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
     /// list, and what's in iPhone's main store. reapply: write every block again first.
     @objc func checkBlocking(_ call: CAPPluginCall) {
         if call.getBool("reapply") == true { Shield.forget() }
+        // Testing App Library search: leave categories (or only their websites) out of the blocks.
+        if let on = call.getBool("noCategories") { LockShared.defaults.set(on, forKey: "testNoCategories") }
+        if let on = call.getBool("noCategoryWebs") { LockShared.defaults.set(on, forKey: "testNoCategoryWebs") }
         Shield.refresh()
         let center = DeviceActivityCenter()
         let limits: [[String: Any]] = ScreenStorage.goals().map { goal in
@@ -222,7 +225,9 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             ["id": lock.id, "name": lock.name, "locked": lock.locked, "picked": LockStorage.selection(lock.id) != nil]
         }
         call.resolve(["status": Self.status(), "limits": limits, "locks": locks, "shield": Shield.report(),
-                      "schedules": center.activities.count])
+                      "schedules": center.activities.count,
+                      "noCategories": LockShared.defaults.bool(forKey: "testNoCategories"),
+                      "noCategoryWebs": LockShared.defaults.bool(forKey: "testNoCategoryWebs")])
     }
 
     /// Locked hours: iPhone wakes the re-locker when they start and end, every day (even when they

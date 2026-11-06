@@ -72,6 +72,8 @@ enum Shield {
         codes += categoryList.map { $0.code }
         let digest = SHA256.hash(data: Data(codes.joined(separator: ",").utf8))
         let fingerprint = digest.map { String(format: "%02x", $0) }.joined()
+            + (LockShared.defaults.bool(forKey: "testNoCategories") ? "-nocats" : "")
+            + (LockShared.defaults.bool(forKey: "testNoCategoryWebs") ? "-nocatwebs" : "")
         let defaults = LockShared.defaults
         // Unchanged, and iPhone still has it (turning Screen Time access off wipes every block).
         let shield = main.shield
@@ -88,8 +90,10 @@ enum Shield {
         let firstCategories = Set(categoryTokens.prefix(perStore))
         store0.shield.applications = firstApps.isEmpty ? nil : firstApps
         store0.shield.webDomains = firstWebs.isEmpty ? nil : firstWebs
-        store0.shield.applicationCategories = firstCategories.isEmpty ? nil : .specific(firstCategories)
-        store0.shield.webDomainCategories = firstCategories.isEmpty ? nil : .specific(firstCategories)
+        // (Testing App Library search, from Check blocking: leave out categories, or just their websites.)
+        let noCategories = defaults.bool(forKey: "testNoCategories"), noCategoryWebs = noCategories || defaults.bool(forKey: "testNoCategoryWebs")
+        store0.shield.applicationCategories = firstCategories.isEmpty || noCategories ? nil : .specific(firstCategories)
+        store0.shield.webDomainCategories = firstCategories.isEmpty || noCategoryWebs ? nil : .specific(firstCategories)
 
         var used = defaults.dictionary(forKey: "shieldStoreCounts") as? [String: Int] ?? [:]
         func spill<T>(_ kind: String, _ list: [T], _ apply: (ManagedSettingsStore, [T]) -> Void) {
@@ -105,8 +109,8 @@ enum Shield {
         spill("apps", appTokens) { store, part in store.shield.applications = Set(part) }
         spill("webs", webTokens) { store, part in store.shield.webDomains = Set(part) }
         spill("cats", categoryTokens) { store, part in
-            store.shield.applicationCategories = .specific(Set(part))
-            store.shield.webDomainCategories = .specific(Set(part))
+            store.shield.applicationCategories = noCategories ? nil : .specific(Set(part))
+            store.shield.webDomainCategories = noCategoryWebs ? nil : .specific(Set(part))
         }
         defaults.set(used, forKey: "shieldStoreCounts")
         defaults.set(fingerprint, forKey: fingerprintKey)
