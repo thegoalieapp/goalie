@@ -430,6 +430,34 @@ function renderLimits(box) {
       screenProblems[t.screenKey] ? el('div', { class: 'lock-problem' }, `⚠ ${screenProblems[t.screenKey]}. Goalie tries again each time it opens.`) : null));
   }
   box.append(el('button', { type: 'button', class: 'submit-btn secondary', onclick: () => limitSheet(null) }, '+ NEW LIMIT'));
+  box.append(el('button', { type: 'button', class: 'check-blocking', onclick: () => checkBlocking() }, 'Something not locking? Check blocking'));
+}
+
+// "Check blocking": what the phone side thinks should be locked and what iPhone is holding, in
+// words, plus a button that writes every block again.
+async function checkBlocking(reapply = false) {
+  let r;
+  try { r = await locksPlugin().checkBlocking({ reapply }); } catch (e) { toast('Couldn’t check blocking'); return; }
+  const s = r.shield || {};
+  const yes = b => (b ? 'yes' : 'no');
+  const what = (a, w, c) => appsText({ apps: a, sites: w, categories: c }).replace('No apps chosen yet', 'nothing');
+  const rows = [];
+  rows.push(['Screen Time access', r.status === 'approved' ? 'On' : 'Off: nothing can lock until it’s on']);
+  rows.push(['Should be locked now', what(s.wantApps, s.wantSites, s.wantCategories)]);
+  rows.push(['iPhone is holding', `${what(s.mainApps, s.mainSites, s.mainCategories)}${s.extraStores ? ` (+${s.extraStores} extra group${s.extraStores === 1 ? '' : 's'})` : ''}`]);
+  rows.push(['Schedules running', String(r.schedules ?? 0)]);
+  const items = [
+    ...(r.locks || []).map(l => [l.name || 'Lock', `locked: ${yes(l.locked)}${l.picked ? '' : ' · no apps saved on this phone'}`]),
+    ...(r.limits || []).map(l => [l.name, `in locked hours: ${yes(l.inHours)} (locked: ${yes(l.hoursLocked)}) · daily limit locked: ${yes(l.limitLocked)} · ${l.picked ? what(l.apps, l.sites, l.categories) : 'no apps saved on this phone'}`]),
+  ];
+  const list = rows.concat(items);
+  openSheet(
+    el('h3', {}, 'Check blocking'),
+    el('p', { class: 'note' }, 'What Goalie has told iPhone to lock. If a screenshot of this would help, send one.'),
+    el('div', { class: 'hist check-rows' }, list.map(([k, v]) => el('div', { class: 'check-row' }, el('strong', {}, k), el('span', {}, v)))),
+    el('button', { class: 'sheet-btn primary', onclick: () => { closeSheet(); setTimeout(() => checkBlocking(true), 300); } }, 'Lock again now'),
+    el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Done'),
+  );
 }
 
 // "1 hr 30 min", "45 min", "2 hr".

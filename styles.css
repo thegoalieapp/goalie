@@ -1917,3 +1917,8 @@ html[data-theme="dark"] .see-apps { color: #8fb4ff; }
 .proof-when { margin-top: 2px; font-size: 13px; color: var(--muted); }
 .proof-note { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .proof-prompt { margin: 8px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+
+/* App Locks → "Something not locking? Check blocking" */
+.check-blocking { display: block; margin: 18px auto 4px; background: none; border: 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.check-rows { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.check-row { display: flex; flex-direction: column; gap: 2px; font-size: 14px; overflow-wrap: anywhere; }

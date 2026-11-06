@@ -7,6 +7,7 @@
 //   showApps({ id })         a list of what's picked, with names and icons (drawn by iPhone)
 //   update({ json })         saves every lock (from Goalie) and locks or unlocks its apps
 //   remove({ id })           deletes a lock and unlocks its apps
+//   checkBlocking({ reapply }) what this side thinks should be locked, and what iPhone holds
 //
 // While a lock is locked it can only get stricter, so picking apps then adds to what it had.
 
@@ -28,7 +29,8 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "showApps", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "screenGoals", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "screenGoals", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "checkBlocking", returnType: CAPPluginReturnPromise)
     ]
 
     private static let daily = DeviceActivityName("goalie.daily")
@@ -200,6 +202,27 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         var reached: [String: Any] = [:]
         for goal in goals where goal.each == true { reached[goal.key] = ScreenStorage.reachedToday(goal.key).count }
         call.resolve(["usage": usage, "reached": reached, "problems": problems])
+    }
+
+    /// "Check blocking" in Goalie: each lock's and limit's state as this side sees it, the combined
+    /// list, and what's in iPhone's main store. reapply: write every block again first.
+    @objc func checkBlocking(_ call: CAPPluginCall) {
+        if call.getBool("reapply") == true { Shield.forget() }
+        Shield.refresh()
+        let center = DeviceActivityCenter()
+        let limits: [[String: Any]] = ScreenStorage.goals().map { goal in
+            let picked = ScreenStorage.selection(goal.key)
+            return ["key": goal.key, "name": goal.name, "inHours": goal.inWindow(),
+                    "hoursLocked": ScreenStorage.windowLocked(goal.key), "limitLocked": ScreenStorage.limitLocked(goal.key),
+                    "picked": picked != nil, "apps": picked?.applicationTokens.count ?? 0,
+                    "sites": picked?.webDomainTokens.count ?? 0, "categories": picked?.categoryTokens.count ?? 0,
+                    "times": goal.times.count]
+        }
+        let locks: [[String: Any]] = LockStorage.configs().map { lock in
+            ["id": lock.id, "name": lock.name, "locked": lock.locked, "picked": LockStorage.selection(lock.id) != nil]
+        }
+        call.resolve(["status": Self.status(), "limits": limits, "locks": locks, "shield": Shield.report(),
+                      "schedules": center.activities.count])
     }
 
     /// Locked hours: iPhone wakes the re-locker when they start and end, every day (even when they
