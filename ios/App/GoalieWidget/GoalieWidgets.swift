@@ -428,15 +428,17 @@ private struct CalendarView: View {
     }
 
     private func dayCell(_ day: WDay, today: Bool, large: Bool) -> some View {
-        // "gold": the day went over 100% (Average progress), shown golden.
-        let fill = day.color == "gold" ? Color(hex: "#d4a017") : day.color.map { Color(hex: $0) } ?? Color.secondary.opacity(0.15)
+        // "gold": the day went over 100% (Average progress): a gold outline and gold number, no fill.
+        let gold = day.color == "gold", goldColor = Color(hex: "#d4a017")
+        let fill = gold ? Color.secondary.opacity(0.15) : day.color.map { Color(hex: $0) } ?? Color.secondary.opacity(0.15)
         let lightText = day.color == nil || day.color == "#facc15"
+        let corner: CGFloat = large ? 6 : 3
         return Text("\(day.day)")
             .font(.system(size: large ? 12 : 8, weight: .bold, design: .rounded))
-            .foregroundColor(lightText ? .primary : .white)
+            .foregroundColor(gold ? goldColor : lightText ? .primary : .white)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: large ? 6 : 3).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: large ? 6 : 3).stroke(Color.primary, lineWidth: today ? 1.5 : 0))
+            .background(RoundedRectangle(cornerRadius: corner).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: corner).stroke(gold ? goldColor : Color.primary, lineWidth: gold ? (large ? 2 : 1.5) : today ? 1.5 : 0))
     }
 }
 
