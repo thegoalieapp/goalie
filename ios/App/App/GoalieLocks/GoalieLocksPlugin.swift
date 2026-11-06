@@ -35,11 +35,14 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private static let daily = DeviceActivityName("goalie.daily")
 
+    private let started = Date()
+
     /// Right after Goalie starts, iPhone reports "not decided yet" for a moment before it has looked up
-    /// the real answer, so give it up to 4 seconds to settle.
+    /// the real answer, so in Goalie's first 4 seconds that answer gets time to settle. Any later,
+    /// it's the real answer (access turned off in Settings, say): straight back, no waiting.
     @objc func authorization(_ call: CAPPluginCall) {
         Task { @MainActor in
-            for _ in 0..<40 where AuthorizationCenter.shared.authorizationStatus == .notDetermined {
+            while AuthorizationCenter.shared.authorizationStatus == .notDetermined && Date().timeIntervalSince(self.started) < 4 {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
             call.resolve(["status": Self.status()])
