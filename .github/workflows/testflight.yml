@@ -7,9 +7,10 @@
 #
 # Signing: the app is built unsigned, then given a temporary signature that carries its permissions
 # (Sign in with Apple, Screen Time, the App Group). The export step re-signs it by hand with the
-# Apple Distribution certificate and four signing profiles made in the developer portal ("Goalie App
-# Store", "Goalie Monitor App Store", "Goalie Shield App Store", "Goalie Shield Action App Store"),
-# because only hand-made profiles can include Family Controls (Distribution). The profiles are
+# Apple Distribution certificate and five signing profiles made in the developer portal ("Goalie App
+# Store", "Goalie Monitor App Store", "Goalie Shield App Store", "Goalie Shield Action App Store",
+# "Goalie Widget App Store"), because only hand-made profiles can include Family Controls
+# (Distribution). The profiles are
 # downloaded with the API key; the certificate sits in a temporary keychain during the step.
 #
 # Secrets (repo Settings → Secrets and variables → Actions):
@@ -21,7 +22,7 @@ name: iPhone build to TestFlight
 
 on:
   push:
-    branches: [app-store, widgets] # widgets: version 1.1, the first update (TestFlight only until 1.0 is out)
+    branches: [app-store]
   workflow_dispatch:
 
 permissions:
@@ -74,7 +75,6 @@ jobs:
             -archivePath "$RUNNER_TEMP/Goalie.xcarchive" \
             -skipPackagePluginValidation -skipMacroValidation \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
-            ${{ github.ref_name == 'widgets' && 'MARKETING_VERSION=1.1' || '' }} \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee "$RUNNER_TEMP/archive.log" || {
@@ -149,10 +149,10 @@ jobs:
           security find-identity -v -p codesigning "$KC" | grep -q "Apple Distribution" \
             || { echo "::error::DIST_P12 doesn't hold an Apple Distribution certificate"; exit 1; }
 
-          # The four signing profiles, downloaded by name.
+          # The five signing profiles, downloaded by name.
           node tools/app-store-connect.js profiles "$HOME/Library/MobileDevice/Provisioning Profiles" \
             "Goalie App Store" "Goalie Monitor App Store" "Goalie Shield App Store" "Goalie Shield Action App Store" \
-            ${{ github.ref_name == 'widgets' && '"Goalie Widget App Store"' || '' }} || exit 1
+            "Goalie Widget App Store" || exit 1
 
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
