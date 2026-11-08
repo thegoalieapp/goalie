@@ -19,14 +19,16 @@ enum LockShared {
 /// Putting the lock screen on apps. Every lock and limit adds to one combined list, so an app is
 /// locked whenever anything that includes it is locked (two limits with the same app never undo
 /// each other). A settings store holding too much is ignored altogether (build 24 put 50 apps, 50
-/// websites and 10 categories in one and nothing locked), so each store holds one kind, at most 50:
-/// the first 50 apps in the app's main store, more apps in "goalie-apps-1"…, websites in
-/// "goalie-webs-0"…, categories in "goalie-cats-0"…. iPhone is only told when the list changes:
-/// rewriting the blocks every minute made the whole phone lag.
+/// websites and 10 categories in one and nothing locked), so none holds more than 50 in all. And
+/// an app can only make so many named stores (earlier builds made too many, and iPhone then ignores
+/// the newer ones), so what matters most goes in the app's main store, which always works: the
+/// categories, then picked apps up to 50 in all. Only more apps ("goalie-apps-1"…), websites
+/// ("goalie-webs-0"…) and the categories' websites ("goalie-cats-0") use named stores. iPhone is only
+/// told when the list changes: rewriting the blocks every minute made the whole phone lag.
 enum Shield {
     private static let perStore = 50
     private static let maxStores = 10
-    private static let fingerprintKey = "shieldFingerprintV6"
+    private static let fingerprintKey = "shieldFingerprintV7"
     private static var main: ManagedSettingsStore { ManagedSettingsStore() }
 
     private static func store(_ kind: String, _ n: Int) -> ManagedSettingsStore {
@@ -58,9 +60,7 @@ enum Shield {
 
     /// Work out everything that should be locked right now and tell iPhone, if it changed.
     static func refresh() {
-        clearOldStores()
-        clearMixedStores()
-        clearFirstNamedStores()
+        clearLegacyStores()
         let (apps, categories, webs) = wanted()
 
         // The same order in the app and its helpers, so the same list always lands in the same stores.
@@ -79,36 +79,38 @@ enum Shield {
             defaults.removeObject(forKey: fingerprintKey)
         }
         // Unchanged, and iPhone still has it (turning Screen Time access off wipes every block).
-        let wiped = (!appList.isEmpty && main.shield.applications == nil)
+        let room = max(0, perStore - min(categoryList.count, perStore)) // picked apps that fit beside the categories
+        let wiped = (!categoryList.isEmpty && main.shield.applicationCategories == nil)
+            || (!appList.isEmpty && room > 0 && main.shield.applications == nil)
             || (!webList.isEmpty && store("webs", 0).shield.webDomains == nil)
-            || (!categoryList.isEmpty && store("cats", 0).shield.applicationCategories == nil)
         guard defaults.string(forKey: fingerprintKey) != fingerprint || wiped else { return }
 
-        // One kind per store, 50 at most. Only named stores in use now or last time are touched.
+        // The main store: the categories, then picked apps, 50 in all.
         let appTokens = appList.map { $0.token }, webTokens = webList.map { $0.token }, categoryTokens = categoryList.map { $0.token }
         let store0 = main
-        let firstApps = Set(appTokens.prefix(perStore))
+        let firstCategories = Set(categoryTokens.prefix(perStore)), firstApps = Set(appTokens.prefix(room))
+        store0.shield.applicationCategories = firstCategories.isEmpty ? nil : .specific(firstCategories)
         store0.shield.applications = firstApps.isEmpty ? nil : firstApps
-        store0.shield.webDomains = nil // (build 24 kept websites and categories here too)
-        store0.shield.applicationCategories = nil
+        store0.shield.webDomains = nil
         store0.shield.webDomainCategories = nil
 
+        // Named stores, one kind each, 50 at most; only those in use now or last time are touched.
         var used = defaults.dictionary(forKey: "shieldStoreCounts") as? [String: Int] ?? [:]
-        func spill<T>(_ kind: String, _ list: [T], from first: Int, _ apply: (ManagedSettingsStore, [T]) -> Void) {
-            let needed = min(maxStores, (list.count + perStore - 1) / perStore)
+        func spill<T>(_ kind: String, _ list: [T], firstStore: Int, _ apply: (ManagedSettingsStore, [T]) -> Void) {
+            let needed = list.isEmpty ? 0 : min(maxStores, firstStore + (list.count + perStore - 1) / perStore)
             let upTo = max(needed, used[kind] ?? 0)
-            if upTo > first {
-                for n in first..<upTo {
-                    let part = Array(list.dropFirst(n * perStore).prefix(perStore))
+            if upTo > firstStore {
+                for n in firstStore..<upTo {
+                    let part = Array(list.dropFirst((n - firstStore) * perStore).prefix(perStore))
                     if part.isEmpty { store(kind, n).clearAllSettings() } else { apply(store(kind, n), part) }
                 }
             }
             used[kind] = needed
         }
-        spill("apps", appTokens, from: 1) { store, part in store.shield.applications = Set(part) }
-        spill("webs", webTokens, from: 0) { store, part in store.shield.webDomains = Set(part) }
-        spill("cats", categoryTokens, from: 0) { store, part in
-            store.shield.applicationCategories = .specific(Set(part))
+        spill("apps", Array(appTokens.dropFirst(room)), firstStore: 1) { store, part in store.shield.applications = Set(part) }
+        spill("webs", webTokens, firstStore: 0) { store, part in store.shield.webDomains = Set(part) }
+        spill("cats", categoryTokens, firstStore: 0) { store, part in
+            store.shield.applicationCategories = nil // (the main store has them)
             store.shield.webDomainCategories = .specific(Set(part))
         }
         defaults.set(used, forKey: "shieldStoreCounts")
@@ -122,7 +124,7 @@ enum Shield {
         return [
             "wantApps": apps.count, "wantSites": webs.count, "wantCategories": categories.count,
             "mainApps": main.shield.applications?.count ?? 0, "mainSites": store("webs", 0).shield.webDomains?.count ?? 0,
-            "mainCategories": store("cats", 0).shield.applicationCategories == nil ? 0 : min(categories.count, perStore),
+            "mainCategories": main.shield.applicationCategories == nil ? 0 : min(categories.count, perStore),
             "extraStores": (used["apps"].map { max(0, $0 - 1) } ?? 0) + (used["webs"].map { max(0, $0 - 1) } ?? 0) + (used["cats"].map { max(0, $0 - 1) } ?? 0),
         ]
     }
@@ -138,6 +140,21 @@ enum Shield {
             list.append((token: token, code: code))
         }
         return list.sorted { $0.code < $1.code }
+    }
+
+    /// Clear what earlier builds left in their stores, once. A fresh install has none, so it skips
+    /// this (making those stores just to clear them would use up named stores for nothing).
+    private static func clearLegacyStores() {
+        let defaults = LockShared.defaults
+        let flags = ["shieldStoresV3", "shieldStoresV4", "shieldStoresV5"]
+        guard flags.contains(where: { !defaults.bool(forKey: $0) }) else { return }
+        let earlier = defaults.object(forKey: "shieldStoreCounts") != nil
+            || ["shieldFingerprint", "shieldFingerprintV4", "shieldFingerprintV5", "shieldFingerprintV6"].contains { defaults.object(forKey: $0) != nil }
+            || !LockStorage.configs().isEmpty || !ScreenStorage.goals().isEmpty
+        guard earlier else { flags.forEach { defaults.set(true, forKey: $0) }; return }
+        clearOldStores()
+        clearMixedStores()
+        clearFirstNamedStores()
     }
 
     /// Builds 15 and 16 kept a separate store for every lock and limit ("lock-x", "screen-x",
