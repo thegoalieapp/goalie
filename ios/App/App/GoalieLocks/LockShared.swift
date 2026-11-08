@@ -72,13 +72,16 @@ enum Shield {
         codes += categoryList.map { $0.code }
         let digest = SHA256.hash(data: Data(codes.joined(separator: ",").utf8))
         let fingerprint = digest.map { String(format: "%02x", $0) }.joined()
-            + (LockShared.defaults.bool(forKey: "testNoCategories") ? "-nocats" : "")
-            + (LockShared.defaults.bool(forKey: "testNoCategoryWebs") ? "-nocatwebs" : "")
         let defaults = LockShared.defaults
+        // Builds 24–27 could leave categories out while testing App Library search: put them back.
+        for key in ["testNoCategories", "testNoCategoryWebs"] where defaults.object(forKey: key) != nil {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: fingerprintKey)
+        }
         // Unchanged, and iPhone still has it (turning Screen Time access off wipes every block).
         let wiped = (!appList.isEmpty && main.shield.applications == nil)
             || (!webList.isEmpty && store("webs", 0).shield.webDomains == nil)
-            || (!categoryList.isEmpty && !defaults.bool(forKey: "testNoCategories") && store("cats", 0).shield.applicationCategories == nil)
+            || (!categoryList.isEmpty && store("cats", 0).shield.applicationCategories == nil)
         guard defaults.string(forKey: fingerprintKey) != fingerprint || wiped else { return }
 
         // One kind per store, 50 at most. Only named stores in use now or last time are touched.
@@ -89,8 +92,6 @@ enum Shield {
         store0.shield.webDomains = nil // (build 24 kept websites and categories here too)
         store0.shield.applicationCategories = nil
         store0.shield.webDomainCategories = nil
-        // (Testing App Library search, from Check blocking: leave out categories, or just their websites.)
-        let noCategories = defaults.bool(forKey: "testNoCategories"), noCategoryWebs = noCategories || defaults.bool(forKey: "testNoCategoryWebs")
 
         var used = defaults.dictionary(forKey: "shieldStoreCounts") as? [String: Int] ?? [:]
         func spill<T>(_ kind: String, _ list: [T], from first: Int, _ apply: (ManagedSettingsStore, [T]) -> Void) {
@@ -107,8 +108,8 @@ enum Shield {
         spill("apps", appTokens, from: 1) { store, part in store.shield.applications = Set(part) }
         spill("webs", webTokens, from: 0) { store, part in store.shield.webDomains = Set(part) }
         spill("cats", categoryTokens, from: 0) { store, part in
-            store.shield.applicationCategories = noCategories ? nil : .specific(Set(part))
-            store.shield.webDomainCategories = noCategoryWebs ? nil : .specific(Set(part))
+            store.shield.applicationCategories = .specific(Set(part))
+            store.shield.webDomainCategories = .specific(Set(part))
         }
         defaults.set(used, forKey: "shieldStoreCounts")
         defaults.set(fingerprint, forKey: fingerprintKey)
