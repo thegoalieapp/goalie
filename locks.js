@@ -446,6 +446,7 @@ async function checkBlocking(reapply = false) {
   rows.push(['Should be locked now', what(s.wantApps, s.wantSites, s.wantCategories)]);
   rows.push(['iPhone is holding', `${what(s.mainApps, s.mainSites, s.mainCategories)}${s.extraStores ? ` (+${s.extraStores} extra group${s.extraStores === 1 ? '' : 's'})` : ''}`]);
   rows.push(['Schedules running', String(r.schedules ?? 0)]);
+  rows.push(['Blocks updated today', `${s.updatesToday ?? 0} (only when something locks or unlocks)`]);
   const items = [
     ...(r.locks || []).map(l => [l.name || 'Lock', `locked: ${yes(l.locked)}${l.picked ? '' : ' · no apps saved on this phone'}`]),
     ...(r.limits || []).map(l => [l.name, `in locked hours: ${yes(l.inHours)} (locked: ${yes(l.hoursLocked)}) · daily limit locked: ${yes(l.limitLocked)} · ${l.picked ? what(l.apps, l.sites, l.categories) : 'no apps saved on this phone'}`]),

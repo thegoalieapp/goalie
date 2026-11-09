@@ -115,6 +115,11 @@ enum Shield {
         }
         defaults.set(used, forKey: "shieldStoreCounts")
         defaults.set(fingerprint, forKey: fingerprintKey)
+        // How often iPhone was told today, for Check blocking (it should only be when something changed).
+        let today = LockStorage.dayKey()
+        let count = defaults.string(forKey: "shieldWritesDay") == today ? defaults.integer(forKey: "shieldWrites") : 0
+        defaults.set(today, forKey: "shieldWritesDay")
+        defaults.set(count + 1, forKey: "shieldWrites")
     }
 
     /// For "Check blocking" in Goalie: what should be locked, and what the first store of each kind holds.
@@ -125,6 +130,7 @@ enum Shield {
             "wantApps": apps.count, "wantSites": webs.count, "wantCategories": categories.count,
             "mainApps": main.shield.applications?.count ?? 0, "mainSites": store("webs", 0).shield.webDomains?.count ?? 0,
             "mainCategories": main.shield.applicationCategories == nil ? 0 : min(categories.count, perStore),
+            "updatesToday": LockShared.defaults.string(forKey: "shieldWritesDay") == LockStorage.dayKey() ? LockShared.defaults.integer(forKey: "shieldWrites") : 0,
             "extraStores": (used["apps"].map { max(0, $0 - 1) } ?? 0) + (used["webs"].map { max(0, $0 - 1) } ?? 0) + (used["cats"].map { max(0, $0 - 1) } ?? 0),
         ]
     }
