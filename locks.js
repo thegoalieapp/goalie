@@ -105,7 +105,7 @@ function appsText(apps) {
   return parts.length ? parts.join(', ') : 'No apps chosen yet';
 }
 
-// A lock or limit holds up to 50 apps, 50 websites and 50 categories (Apple's picker won't finish
+// A lock or limit holds up to 50 apps and categories together, and 50 websites (Apple's picker won't finish
 // past that). When one is filled up, offer another with the same settings for the rest.
 const fullPicks = new Set(); // ids picked up to the limit, until they're saved
 const nextName = name => {
@@ -115,7 +115,7 @@ const nextName = name => {
 function offerAnother(kind, name, open) {
   setTimeout(() => openSheet(
     el('h3', {}, 'Want to block more?'),
-    el('p', {}, `${name} is full: one ${kind} holds up to 50 apps, 50 websites and 50 categories. Make another ${kind} with the same settings for the rest?`),
+    el('p', {}, `${name} is full: one ${kind} holds up to 50 apps and categories together, and 50 websites. Make another ${kind} with the same settings for the rest?`),
     kind === 'limit' ? el('p', { class: 'note' }, 'Each limit keeps its own daily time.') : null,
     el('button', { class: 'sheet-btn primary', onclick: () => switchSheet(open) }, `Make another ${kind}`),
     el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Not now'),

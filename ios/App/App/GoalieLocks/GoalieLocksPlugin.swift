@@ -313,33 +313,32 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 }
 
-/// Apple's app picker, with Cancel and Done. One lock or limit holds up to 50 apps, 50 websites
-/// and 50 categories (iPhone's own limit for each list): past that, Done waits until some are
-/// removed. Apple's picker can't stop the ticking itself.
+/// Apple's app picker, with Cancel and Done. One lock or limit holds up to 50 apps and categories
+/// together (they share iPhone's main group, see Shield) and 50 websites: past that, Done waits
+/// until some are removed. Apple's picker can't stop the ticking itself.
 private struct AppPickerView: View {
     static let most = 50
     @State var selection: FamilyActivitySelection
     let onDone: (FamilyActivitySelection) -> Void
     let onCancel: () -> Void
 
+    private static func appsAndCategories(_ s: FamilyActivitySelection) -> Int { s.applicationTokens.count + s.categoryTokens.count }
     static func isFull(_ s: FamilyActivitySelection) -> Bool {
-        s.applicationTokens.count >= most || s.webDomainTokens.count >= most || s.categoryTokens.count >= most
+        appsAndCategories(s) >= most || s.webDomainTokens.count >= most
     }
-    /// "Remove 11 apps and 14 websites to continue." (nothing when it fits)
+    /// "Remove 6 apps or categories and 14 websites to continue." (nothing when it fits)
     private var tooMany: String? {
-        let counts = [(selection.applicationTokens.count, "app"), (selection.webDomainTokens.count, "website"),
-                      (selection.categoryTokens.count, "category")]
-        let over = counts.filter { $0.0 > Self.most }.map { item -> String in
-            let n = item.0 - Self.most
-            let plural = item.1 == "category" ? "categories" : item.1 + "s"
-            return "\(n) " + (n == 1 ? item.1 : plural)
-        }
+        var over: [String] = []
+        let extra = Self.appsAndCategories(selection) - Self.most
+        if extra > 0 { over.append("\(extra) \(extra == 1 ? "app or category" : "apps or categories")") }
+        let extraWebs = selection.webDomainTokens.count - Self.most
+        if extraWebs > 0 { over.append("\(extraWebs) \(extraWebs == 1 ? "website" : "websites")") }
         return over.isEmpty ? nil : "That’s more than one lock can hold. Remove \(over.joined(separator: " and ")) to continue. You can lock the rest with another one."
     }
 
     var body: some View {
         NavigationView {
-            FamilyActivityPicker(headerText: "Up to 50 apps, 50 websites and 50 categories", selection: $selection)
+            FamilyActivityPicker(headerText: "Up to 50 apps and categories, and 50 websites", selection: $selection)
                 .navigationTitle("Choose apps to lock")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
