@@ -157,9 +157,11 @@ function drawLocks() {
     box.append(el('div', { class: 'locks-intro' },
       el('h3', {}, 'Lock apps until your goals are done'),
       el('p', {}, 'Pick apps like social media and the goals that unlock them. The apps stay locked until those goals are done, and lock again when the goals start over (tomorrow for daily goals, next week for weekly ones).'),
-      el('button', { type: 'button', class: 'submit-btn', onclick: allowScreenTime }, 'Allow Screen Time access'),
+      el('p', {}, 'App Locks use Apple’s Screen Time. Next, iPhone asks whether Goalie can use it. You can change your answer any time in Settings.'),
+      // (App Review: the button only leads on to iPhone's own question, so it says Continue.)
+      el('button', { type: 'button', class: 'submit-btn', onclick: allowScreenTime }, 'Continue'),
       locksUi.auth === 'denied'
-        ? el('p', { class: 'note' }, 'Screen Time access is off for Goalie. If the button doesn’t ask, turn it on in iPhone Settings → Screen Time → Apps with Screen Time Access.')
+        ? el('p', { class: 'note' }, 'Screen Time access is off for Goalie. If iPhone doesn’t ask again, you can turn it on in iPhone Settings → Screen Time → Apps with Screen Time Access.')
         : null,
       el('p', { class: 'note' }, 'Goalie never sees which apps you pick or how you use them. That stays on your phone with Apple.')));
     return;

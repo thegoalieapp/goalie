@@ -3857,14 +3857,19 @@ function scheduleNativeReminders(force = false) {
 if (isNativeApp) { window.goalieReminders = () => scheduleNativeReminders(); scheduleNativeReminders(true); }
 async function renderNativeNotifyStatus() {
   const plugin = nativeNotify();
-  $('#btn-notify').textContent = 'Turn on reminders';
+  // (App Review: the button only leads on to iPhone's own question, so it says Continue, and only
+  // shows while iPhone hasn't asked yet.)
+  $('#btn-notify').textContent = 'Continue';
+  $('#btn-notify').before($('#notify-status')); // the explanation comes first, then Continue
   let display = 'denied';
   try { ({ display } = await plugin.checkPermissions()); } catch (e) { /* no plugin */ }
+  const asking = display !== 'granted' && display !== 'denied';
+  $('#btn-notify').classList.toggle('hidden', !asking);
   $('#notify-status').textContent = display === 'granted'
     ? 'Reminders are on. Each goal’s reminder arrives at its time, even when Goalie is closed.'
     : display === 'denied'
-      ? 'Notifications are off for Goalie. Turn them on in iPhone Settings → Notifications → Goalie.'
-      : 'Tap above to allow reminders. Set a reminder time on any goal.';
+      ? 'Notifications are off for Goalie. You can turn them on in iPhone Settings → Notifications → Goalie.'
+      : 'Reminders arrive at each goal’s reminder time, even when Goalie is closed. Next, iPhone asks whether Goalie can send notifications.';
 }
 
 // The icon badge feature was removed; clear any badge an older version left behind.
