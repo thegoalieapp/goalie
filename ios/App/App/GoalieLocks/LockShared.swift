@@ -14,6 +14,22 @@ import DeviceActivity
 enum LockShared {
     static let group = "group.com.thegoalieapp.goalie"
     static var defaults: UserDefaults { UserDefaults(suiteName: group) ?? .standard }
+    /// One thing at a time: iPhone can wake the re-locker for two schedules at the same moment (one
+    /// locked-hours time ending as the next begins), and two at once could undo each other's work.
+    static let serial = NSRecursiveLock()
+    static func one<T>(_ work: () -> T) -> T { serial.lock(); defer { serial.unlock() }; return work() }
+}
+
+/// What the app and the re-locker did lately (shown in Check blocking), newest last, 60 at most.
+/// It stays on the phone.
+enum ShieldLog {
+    static func add(_ text: String) {
+        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .medium)
+        var lines = LockShared.defaults.stringArray(forKey: "shieldLog") ?? []
+        lines.append("\(stamp)  \(text)")
+        LockShared.defaults.set(Array(lines.suffix(60)), forKey: "shieldLog")
+    }
+    static var lines: [String] { LockShared.defaults.stringArray(forKey: "shieldLog") ?? [] }
 }
 
 /// Putting the lock screen on apps. Every lock and limit adds to one combined list, so an app is
@@ -28,15 +44,20 @@ enum LockShared {
 enum Shield {
     private static let perStore = 50
     private static let maxStores = 10
-    private static let fingerprintKey = "shieldFingerprintV7"
+    private static let fingerprintKey = "shieldFingerprintV8"
+    /// Each process keeps its own note of what it last told iPhone (the app and the re-locker each
+    /// run on their own, so one's note mustn't stop the other from writing).
+    private static var processKey: String { Bundle.main.bundleIdentifier ?? "app" }
     private static var main: ManagedSettingsStore { ManagedSettingsStore() }
 
     private static func store(_ kind: String, _ n: Int) -> ManagedSettingsStore {
         ManagedSettingsStore(named: ManagedSettingsStore.Name("goalie-\(kind)-\(n)"))
     }
 
-    /// Everything that should be locked right now.
-    static func wanted() -> (apps: Set<ApplicationToken>, categories: Set<ActivityCategoryToken>, webs: Set<WebDomainToken>) {
+    /// Everything that should be locked at this time. Locked hours come from the clock and each
+    /// time's days (not from notes saved when a schedule started, which two schedules at once could
+    /// overwrite), so the answer is always the same whoever asks.
+    static func wanted(at date: Date = Date()) -> (apps: Set<ApplicationToken>, categories: Set<ActivityCategoryToken>, webs: Set<WebDomainToken>) {
         var apps = Set<ApplicationToken>(), categories = Set<ActivityCategoryToken>(), webs = Set<WebDomainToken>()
         func add(_ picked: FamilyActivitySelection) {
             apps.formUnion(picked.applicationTokens)
@@ -48,9 +69,12 @@ enum Shield {
         }
         for goal in ScreenStorage.goals() {
             guard let picked = ScreenStorage.selection(goal.key) else { continue }
-            if ScreenStorage.windowLocked(goal.key) || ScreenStorage.limitLocked(goal.key) {
+            let inHours = goal.times.prefix(ScreenStorage.maxTimes).contains { $0.inWindow(date) }
+            let overLimit = ScreenStorage.limitLocked(goal.key)
+                || (goal.lock && goal.limit > 0 && goal.each != true && goal.appliesOn(date) && ScreenStorage.minutesToday(goal.key) >= goal.limit)
+            if inHours || overLimit {
                 add(picked)
-            } else if goal.each == true, goal.lock, goal.appliesOn(Date()) { // just the apps at their own limit
+            } else if goal.each == true, goal.lock, goal.appliesOn(date) { // just the apps at their own limit
                 let hit = ScreenStorage.reachedItems(goal.key)
                 apps.formUnion(hit.apps); categories.formUnion(hit.categories); webs.formUnion(hit.webs)
             }
@@ -58,10 +82,15 @@ enum Shield {
         return (apps, categories, webs)
     }
 
-    /// Work out everything that should be locked right now and tell iPhone, if it changed.
-    static func refresh() {
+    /// Work out everything that should be locked (now, or at a moment just ahead: see GoalieMonitor)
+    /// and tell iPhone, if it changed.
+    static func refresh(at date: Date = Date(), why: String? = nil) {
+        LockShared.one { write(at: date, why: why) }
+    }
+
+    private static func write(at date: Date, why: String?) {
         clearLegacyStores()
-        let (apps, categories, webs) = wanted()
+        let (apps, categories, webs) = wanted(at: date)
 
         // The same order in the app and its helpers, so the same list always lands in the same stores.
         let appList = ordered(apps), webList = ordered(webs), categoryList = ordered(categories)
@@ -83,7 +112,8 @@ enum Shield {
         let wiped = (!categoryList.isEmpty && main.shield.applicationCategories == nil)
             || (!appList.isEmpty && room > 0 && main.shield.applications == nil)
             || (!webList.isEmpty && store("webs", 0).shield.webDomains == nil)
-        guard defaults.string(forKey: fingerprintKey) != fingerprint || wiped else { return }
+        var notes = defaults.dictionary(forKey: fingerprintKey) as? [String: String] ?? [:]
+        guard notes[processKey] != fingerprint || wiped else { return }
 
         // The main store: the categories, then picked apps, 50 in all.
         let appTokens = appList.map { $0.token }, webTokens = webList.map { $0.token }, categoryTokens = categoryList.map { $0.token }
@@ -114,7 +144,11 @@ enum Shield {
             store.shield.webDomainCategories = .specific(Set(part))
         }
         defaults.set(used, forKey: "shieldStoreCounts")
-        defaults.set(fingerprint, forKey: fingerprintKey)
+        notes[processKey] = fingerprint
+        defaults.set(notes, forKey: fingerprintKey)
+        let extra = max(0, appTokens.count - room)
+        ShieldLog.add("\(why ?? "Updated"): locking \(firstApps.count) apps, \(firstCategories.count) categories, \(webTokens.count) websites"
+            + (extra > 0 ? " (\(extra) more apps in extra groups)" : ""))
         // How often iPhone was told today, for Check blocking (it should only be when something changed).
         let today = LockStorage.dayKey()
         let count = defaults.string(forKey: "shieldWritesDay") == today ? defaults.integer(forKey: "shieldWrites") : 0
@@ -130,6 +164,8 @@ enum Shield {
             "wantApps": apps.count, "wantSites": webs.count, "wantCategories": categories.count,
             "mainApps": main.shield.applications?.count ?? 0, "mainSites": store("webs", 0).shield.webDomains?.count ?? 0,
             "mainCategories": main.shield.applicationCategories == nil ? 0 : min(categories.count, perStore),
+            "overflowApps": max(0, apps.count - max(0, perStore - min(categories.count, perStore))),
+            "log": Array(ShieldLog.lines.suffix(25)),
             "updatesToday": LockShared.defaults.string(forKey: "shieldWritesDay") == LockStorage.dayKey() ? LockShared.defaults.integer(forKey: "shieldWrites") : 0,
             "extraStores": (used["apps"].map { max(0, $0 - 1) } ?? 0) + (used["webs"].map { max(0, $0 - 1) } ?? 0) + (used["cats"].map { max(0, $0 - 1) } ?? 0),
         ]
@@ -137,6 +173,10 @@ enum Shield {
 
     /// Screen Time access was turned off and on again (iPhone drops every block): write it all again.
     static func forget() { LockShared.defaults.removeObject(forKey: fingerprintKey) }
+    /// Whoever asks, the same moment's answer (for the lock screen and Check blocking).
+    static func lockedHours(_ goal: ScreenGoal, at date: Date = Date()) -> Bool {
+        goal.times.prefix(ScreenStorage.maxTimes).contains { $0.inWindow(date) }
+    }
 
     private static func ordered<T: Encodable & Hashable>(_ tokens: Set<T>) -> [(token: T, code: String)] {
         let encoder = JSONEncoder()
@@ -294,7 +334,7 @@ enum LockStorage {
             all[index].locked = applies && all[index].goals.contains { !$0.done }
         }
         saveConfigs(all)
-        Shield.refresh()
+        Shield.refresh(why: "New day")
     }
 }
 

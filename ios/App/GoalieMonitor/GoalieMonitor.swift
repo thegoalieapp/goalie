@@ -11,47 +11,34 @@ import DeviceActivity
 import Foundation
 
 class GoalieMonitor: DeviceActivityMonitor {
+    /* Locked hours: when one starts or ends, what's locked is worked out from the clock and each
+       time's days (Shield.wanted), half a minute ahead, so a wake-up a moment early or late still
+       lands on the right side of the boundary, and two times meeting (5 AM–11 PM ending as 11 PM–6 AM
+       starts) give the same answer in either order. iPhone can wake this for both at once, so each
+       wake-up runs one at a time (LockShared.one). */
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
-        if let span = ScreenStorage.hoursSpan(of: activity) {
-            // Locked hours start, for every limit with these hours, on that time's days. The
-            // after-midnight part ("b") belongs to the night before.
-            for (key, n, time, part) in Self.times(in: span) {
-                let day = part == "b" ? Date().addingTimeInterval(-86_400) : Date()
-                if time.appliesOn(day) { ScreenStorage.setWindowLocked(key, time: n, true) }
+        LockShared.one {
+            if ScreenStorage.hoursSpan(of: activity) != nil || ScreenStorage.key(ofWindow: activity) != nil {
+                ShieldLog.add("Locked hours start (\(activity.rawValue))")
+                Shield.refresh(at: Date().addingTimeInterval(30), why: "Locked hours start")
+            } else if let key = ScreenStorage.key(of: activity) {
+                ScreenStorage.clearReached(key) // a new day: every app back under its limit
+                ScreenStorage.setLimitLocked(key, false)
+                Shield.refresh(why: "New day for a limit")
+            } else {
+                LockStorage.relockForNewPeriods()
             }
-            Shield.refresh()
-        } else if let (key, n, part) = ScreenStorage.key(ofWindow: activity) { // (before build 23)
-            // One of the locked-hours times starts: lock, if it's one of that time's days. The
-            // after-midnight part ("b") belongs to the night before.
-            let day = part == "b" ? Date().addingTimeInterval(-86_400) : Date()
-            if Self.time(key, n)?.appliesOn(day) ?? true {
-                ScreenStorage.setWindowLocked(key, time: n, true)
-                Shield.refresh()
-            }
-        } else if let key = ScreenStorage.key(of: activity) {
-            ScreenStorage.clearReached(key) // a new day: every app back under its limit
-            ScreenStorage.setLimitLocked(key, false)
-            Shield.refresh()
-        } else {
-            LockStorage.relockForNewPeriods()
         }
     }
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
-        if let span = ScreenStorage.hoursSpan(of: activity) {
-            for (key, n, time, part) in Self.times(in: span) {
-                // Hours that run past midnight stay locked from 11:59 PM into the morning part.
-                if part == "a", let window = time.window, window.start > window.end, window.end >= 15 { continue }
-                ScreenStorage.setWindowLocked(key, time: n, false)
+        LockShared.one {
+            if ScreenStorage.hoursSpan(of: activity) != nil || ScreenStorage.key(ofWindow: activity) != nil {
+                ShieldLog.add("Locked hours end (\(activity.rawValue))")
+                Shield.refresh(at: Date().addingTimeInterval(30), why: "Locked hours end")
             }
-            Shield.refresh()
-        } else if let (key, n, part) = ScreenStorage.key(ofWindow: activity) { // (before build 23)
-            // Hours that run past midnight stay locked from 11:59 PM into the morning part.
-            if part == "a", let window = Self.time(key, n)?.window, window.start > window.end, window.end >= 15 { return }
-            ScreenStorage.setWindowLocked(key, time: n, false)
-            Shield.refresh()
         }
     }
 
@@ -76,13 +63,17 @@ class GoalieMonitor: DeviceActivityMonitor {
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         super.eventDidReachThreshold(event, activity: activity)
+        LockShared.one { reached(event, activity: activity) }
+    }
+
+    private func reached(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         guard let key = ScreenStorage.key(of: activity) else { return }
         let goal = ScreenStorage.goals().first(where: { $0.key == key })
         let name = event.rawValue
         if name.hasPrefix("i"), let item = Int(name.dropFirst()) { // one app reached its own limit
             if let goal, goal.lock, goal.appliesOn(Date()) {
                 ScreenStorage.markReached(key, item: item)
-                Shield.refresh()
+                Shield.refresh(why: "An app reached its own limit")
             }
             return
         }
@@ -90,7 +81,7 @@ class GoalieMonitor: DeviceActivityMonitor {
         ScreenStorage.record(key, minutes: minutes)
         if let goal, goal.lock, goal.each != true, goal.limit > 0, minutes >= goal.limit, goal.appliesOn(Date()) {
             ScreenStorage.setLimitLocked(key, true)
-            Shield.refresh()
+            Shield.refresh(why: "Daily limit reached")
         }
     }
 }

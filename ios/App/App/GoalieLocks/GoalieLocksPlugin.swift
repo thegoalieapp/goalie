@@ -189,11 +189,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
             // at their own limit; Shield.refresh() reads those.)
             ScreenStorage.setLimitLocked(goal.key, goal.lock && goal.limit > 0 && !each && goal.appliesOn(Date())
                 && ScreenStorage.minutesToday(goal.key) >= goal.limit)
-            // Locked hours: locked or not right now, whichever the clock says.
-            ScreenStorage.clearWindowLocks(goal.key)
-            for (n, time) in goal.times.prefix(ScreenStorage.maxTimes).enumerated() where time.inWindow() {
-                ScreenStorage.setWindowLocked(goal.key, time: n, true)
-            }
+            ScreenStorage.clearWindowLocks(goal.key) // (locked hours now come from the clock: Shield.wanted)
         }
         for (key, problem) in Self.scheduleHours(goals, center: center) where problems[key] == nil { problems[key] = problem }
         Shield.refresh() // everything above, in one go (only told to iPhone if something changed)
@@ -216,7 +212,7 @@ public class GoalieLocksPlugin: CAPPlugin, CAPBridgedPlugin {
         let limits: [[String: Any]] = ScreenStorage.goals().map { goal in
             let picked = ScreenStorage.selection(goal.key)
             return ["key": goal.key, "name": goal.name, "inHours": goal.inWindow(),
-                    "hoursLocked": ScreenStorage.windowLocked(goal.key), "limitLocked": ScreenStorage.limitLocked(goal.key),
+                    "limitLocked": ScreenStorage.limitLocked(goal.key),
                     "picked": picked != nil, "apps": picked?.applicationTokens.count ?? 0,
                     "sites": picked?.webDomainTokens.count ?? 0, "categories": picked?.categoryTokens.count ?? 0,
                     "times": goal.times.count]

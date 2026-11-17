@@ -449,15 +449,19 @@ async function checkBlocking(reapply = false) {
   rows.push(['iPhone is holding', `${what(s.mainApps, s.mainSites, s.mainCategories)}${s.extraStores ? ` (+${s.extraStores} extra group${s.extraStores === 1 ? '' : 's'})` : ''}`]);
   rows.push(['Schedules running', String(r.schedules ?? 0)]);
   rows.push(['Blocks updated today', `${s.updatesToday ?? 0} (only when something locks or unlocks)`]);
+  if (s.overflowApps > 0) rows.push(['⚠ Too many single apps', `${s.overflowApps} picked app${s.overflowApps === 1 ? '' : 's'} didn’t fit in iPhone’s main group (50 categories and apps in all) and may not lock. Pick categories instead of single apps where you can.`]);
   const items = [
     ...(r.locks || []).map(l => [l.name || 'Lock', `locked: ${yes(l.locked)}${l.picked ? '' : ' · no apps saved on this phone'}`]),
-    ...(r.limits || []).map(l => [l.name, `in locked hours: ${yes(l.inHours)} (locked: ${yes(l.hoursLocked)}) · daily limit locked: ${yes(l.limitLocked)} · ${l.picked ? what(l.apps, l.sites, l.categories) : 'no apps saved on this phone'}`]),
+    ...(r.limits || []).map(l => [l.name, `in locked hours: ${yes(l.inHours)} · daily limit locked: ${yes(l.limitLocked)} · ${l.picked ? what(l.apps, l.sites, l.categories) : 'no apps saved on this phone'}`]),
   ];
   const list = rows.concat(items);
   openSheet(
     el('h3', {}, 'Check blocking'),
     el('p', { class: 'note' }, 'What Goalie has told iPhone to lock. If a screenshot of this would help, send one.'),
     el('div', { class: 'hist check-rows' }, list.map(([k, v]) => el('div', { class: 'check-row' }, el('strong', {}, k), el('span', {}, v)))),
+    // What the app and the re-locker did lately, newest first (kept on this phone).
+    r.shield?.log?.length ? el('details', { class: 'tip-drop check-log' }, el('summary', {}, 'Recent activity'),
+      el('ol', {}, [...r.shield.log].reverse().map(line => el('li', {}, line)))) : null,
     el('button', { class: 'sheet-btn primary', onclick: () => { closeSheet(); setTimeout(() => checkBlocking(true), 300); } }, 'Lock again now'),
     el('button', { class: 'sheet-btn', onclick: closeSheet }, 'Done'),
   );
